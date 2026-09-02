@@ -319,6 +319,24 @@ input, select, textarea { font-family: inherit; }
   gap: 10px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.drag-handle {
+  cursor: grab;
+  color: var(--muted);
+  font-size: 1.1rem;
+  padding: 0 4px;
+  user-select: none;
+  touch-action: none;
+}
+.drag-handle:active { cursor: grabbing; }
+.sortable-ghost {
+  opacity: 0.4;
+  background: var(--surface2) !important;
+}
+.sortable-drag {
+  background: var(--surface2) !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 .list-item:last-child { border-bottom: 0; }
 .item-check {

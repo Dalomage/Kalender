@@ -8,7 +8,7 @@ import {
 import {
   getFirestore, collection, query, where, onSnapshot, getDocs,
   addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, Timestamp,
-  deleteField, increment
+  deleteField, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
 
 // ── Firebase init ─────────────────────────────────────────────
@@ -1128,16 +1128,14 @@ function openList(list) {
         <button type="submit" class="btn btn-small">+ Hinzufügen</button>
       </form>
       <div id="item-list"></div>
-      ${list.owner === currentUser.uid ? `
-        <div style="margin-top:1.5rem;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+      <div style="margin-top:1.5rem;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-secondary btn-small" id="clear-done-btn">Erledigte entfernen</button>
-          <button class="btn btn-secondary btn-small" id="list-settings-btn">Einstellungen</button>
+          <button class="btn btn-secondary btn-small" id="reopen-all-btn">Alle wieder öffnen</button>
+          <button class="btn btn-secondary btn-small" id="duplicate-btn">Als Vorlage duplizieren</button>
         </div>
-      ` : `
-        <div style="margin-top:1.5rem;">
-          <button class="btn btn-secondary btn-small" id="clear-done-btn">Erledigte entfernen</button>
-        </div>
-      `}
+        ${list.owner === currentUser.uid ? '<button class="btn btn-secondary btn-small" id="list-settings-btn">Einstellungen</button>' : ''}
+      </div>
     </main>
   `;
   wireLogout();
@@ -1147,6 +1145,8 @@ function openList(list) {
     addItem(list);
   });
   $('clear-done-btn').addEventListener('click', () => clearDoneItems(list));
+  $('reopen-all-btn').addEventListener('click', () => reopenAllItems(list));
+  $('duplicate-btn').addEventListener('click', () => duplicateList(list));
   if (list.owner === currentUser.uid) {
     $('list-settings-btn').addEventListener('click', () => openListSettingsModal(list));
   }
@@ -1176,10 +1176,11 @@ function updateListHeader(list) {
   `;
 }
 
+let sortableOpen = null;
 function renderItems(list) {
   const el = $('item-list');
   if (!el) return;
-  // Offene zuerst (nach Reihenfolge/Anlagedatum), erledigte unten
+  if (sortableOpen) { try { sortableOpen.destroy(); } catch {} sortableOpen = null; }
   const open = listItems.filter(i => !i.done).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const done = listItems.filter(i => i.done).sort((a, b) => (b.doneAt?.seconds ?? 0) - (a.doneAt?.seconds ?? 0));
   const emails = list.householdId
@@ -1191,8 +1192,9 @@ function renderItems(list) {
     return;
   }
 
-  const itemHtml = i => `
+  const itemHtml = (i, draggable) => `
     <div class="list-item ${i.done ? 'done' : ''}" data-id="${i.id}">
+      ${draggable ? '<span class="drag-handle" title="Ziehen zum Sortieren">⋮⋮</span>' : ''}
       <label class="item-check">
         <input type="checkbox" ${i.done ? 'checked' : ''} data-toggle="${i.id}" />
         <span class="item-text">${i.qty && i.qty > 1 ? `<b>${i.qty}×</b> ` : ''}${escapeHtml(i.text)}</span>
@@ -1203,10 +1205,10 @@ function renderItems(list) {
   `;
 
   el.innerHTML = `
-    <div class="list-items">${open.map(itemHtml).join('')}</div>
+    <div class="list-items" id="open-items">${open.map(i => itemHtml(i, true)).join('')}</div>
     ${done.length ? `
       <div class="list-section-label">Erledigt (${done.length})</div>
-      <div class="list-items">${done.map(itemHtml).join('')}</div>
+      <div class="list-items">${done.map(i => itemHtml(i, false)).join('')}</div>
     ` : ''}
   `;
 
@@ -1216,6 +1218,29 @@ function renderItems(list) {
   el.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', () => deleteItem(list, btn.dataset.del));
   });
+
+  // Drag & Drop nur für offene Items
+  const openList = $('open-items');
+  if (openList && typeof Sortable !== 'undefined') {
+    sortableOpen = Sortable.create(openList, {
+      handle: '.drag-handle',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      dragClass: 'sortable-drag',
+      onEnd: async () => {
+        const ids = Array.from(openList.querySelectorAll('.list-item')).map(el => el.dataset.id);
+        try {
+          const batch = writeBatch(db);
+          ids.forEach((id, idx) => {
+            batch.update(doc(db, 'lists', list.id, 'items', id), { order: idx + 1 });
+          });
+          await batch.commit();
+        } catch (err) {
+          console.error('reorder failed:', err);
+        }
+      }
+    });
+  }
 }
 
 function shortName(s) {
@@ -1281,6 +1306,65 @@ async function clearDoneItems(list) {
   if (!confirm(`${doneItems.length} erledigte Einträge löschen?`)) return;
   try {
     await Promise.all(doneItems.map(i => deleteDoc(doc(db, 'lists', list.id, 'items', i.id))));
+  } catch (err) {
+    alert('Fehler: ' + err.message);
+  }
+}
+
+async function reopenAllItems(list) {
+  const doneItems = listItems.filter(i => i.done);
+  if (!doneItems.length) return;
+  if (!confirm(`${doneItems.length} erledigte Einträge wieder auf offen setzen? Praktisch für Wocheneinkauf: einmal Einkaufsliste anlegen, jede Woche neu abhaken.`)) return;
+  try {
+    const batch = writeBatch(db);
+    doneItems.forEach(i => {
+      batch.update(doc(db, 'lists', list.id, 'items', i.id), {
+        done: false, doneBy: null, doneAt: null
+      });
+    });
+    batch.update(doc(db, 'lists', list.id), { openCount: increment(doneItems.length) });
+    await batch.commit();
+  } catch (err) {
+    alert('Fehler: ' + err.message);
+  }
+}
+
+async function duplicateList(list) {
+  const name = prompt('Name für die neue Liste:', `${list.name} (Kopie)`);
+  if (!name || !name.trim()) return;
+  try {
+    // Neue Liste anlegen — als persönliche Liste des aktuellen Users,
+    // gleiche Zuordnung wie das Original
+    const payload = {
+      name: name.trim(),
+      icon: list.icon,
+      owner: currentUser.uid,
+      members: { [currentUser.uid]: 'owner' },
+      openCount: 0,
+      createdAt: serverTimestamp()
+    };
+    if (list.householdId) payload.householdId = list.householdId;
+    const newListRef = await addDoc(collection(db, 'lists'), payload);
+
+    // Alle offenen Items kopieren (erledigte nicht)
+    const openItems = listItems.filter(i => !i.done);
+    if (openItems.length) {
+      const batch = writeBatch(db);
+      openItems.forEach((i, idx) => {
+        const newDocRef = doc(collection(db, 'lists', newListRef.id, 'items'));
+        batch.set(newDocRef, {
+          text: i.text,
+          qty: i.qty || 1,
+          done: false,
+          order: idx + 1,
+          createdBy: currentUser.uid,
+          createdAt: serverTimestamp()
+        });
+      });
+      batch.update(newListRef, { openCount: openItems.length });
+      await batch.commit();
+    }
+    alert(`Liste „${name.trim()}" angelegt.`);
   } catch (err) {
     alert('Fehler: ' + err.message);
   }
