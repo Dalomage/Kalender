@@ -238,7 +238,18 @@ input, select, textarea { font-family: inherit; }
   gap: 8px;
   margin-bottom: 1rem;
 }
-.add-item-row input {
+.add-item-row input[type="number"] {
+  width: 64px;
+  flex: 0 0 auto;
+  text-align: center;
+  padding: 10px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+.add-item-row input[type="text"] {
   flex: 1;
   padding: 10px 12px;
   background: var(--surface);
@@ -248,6 +259,34 @@ input, select, textarea { font-family: inherit; }
   font-size: 0.95rem;
 }
 .add-item-row input:focus { outline: none; border-color: var(--primary); }
+
+.modal-wide { max-width: 620px; }
+.search-results {
+  max-height: 50vh;
+  overflow-y: auto;
+  margin: 0.5rem 0 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.search-hit {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.search-hit:last-child { border-bottom: 0; }
+.search-hit:hover { background: var(--surface2); }
+.search-hit-title {
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.search-hit-meta { font-size: 0.78rem; color: var(--muted); }
+
+.fc .fc-jumpTo-button { font-size: 0.9rem; }
 
 .list-items {
   background: var(--surface);

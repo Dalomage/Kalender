@@ -281,18 +281,23 @@ function goHome() {
 }
 
 // ── Topbar ────────────────────────────────────────────────────
-function topbarHtml(extra = '') {
+function topbarHtml(extra = '', showSearch = false) {
   return `
     <header class="topbar">
       <h1>📅 Kalender</h1>
       ${extra}
       <div class="topbar-spacer"></div>
+      ${showSearch ? '<button class="logout-btn" id="search-btn" title="Termine suchen">🔍</button>' : ''}
       <span class="user-badge">${escapeHtml(currentUser.email)}</span>
       <button class="logout-btn" id="logout-btn">Abmelden</button>
     </header>
   `;
 }
-function wireLogout() { $('logout-btn').addEventListener('click', () => signOut(auth)); }
+function wireLogout() {
+  $('logout-btn').addEventListener('click', () => signOut(auth));
+  const sb = $('search-btn');
+  if (sb) sb.addEventListener('click', openSearchModal);
+}
 
 // ── Home: Haushalte + persönliche Kalender ────────────────────
 const CALENDAR_COLORS = ['#14b8a6', '#3b82f6', '#a855f7', '#ec4899', '#f59e0b', '#ef4444', '#22c55e', '#0ea5e9'];
@@ -301,7 +306,7 @@ function renderHome() {
   const personalCals = calendars.filter(c => !c.householdId);
   const personalLists = lists.filter(l => !l.householdId);
   appEl.innerHTML = `
-    ${topbarHtml()}
+    ${topbarHtml('', true)}
     <main class="content">
       <div class="section-title">
         <span>Haushalte</span>
@@ -778,11 +783,18 @@ function openCalendar(cal) {
     firstDay: 1,
     height: 'auto',
     headerToolbar: {
-      left: 'prev,next today',
+      left: 'prev,next today jumpTo',
       center: 'title',
       right: window.innerWidth < 700 ? 'dayGridMonth,listWeek' : 'dayGridMonth,timeGridWeek,listWeek'
     },
     buttonText: { today: 'Heute', month: 'Monat', week: 'Woche', list: 'Liste' },
+    customButtons: {
+      jumpTo: {
+        text: '📅→',
+        hint: 'Zu Datum springen',
+        click: () => openJumpToModal(cal)
+      }
+    },
     eventColor: cal.color,
     selectable: canEdit,
     editable: false,
@@ -1000,6 +1012,7 @@ function openList(list) {
     `)}
     <main class="content">
       <form id="add-item-form" class="add-item-row">
+        <input type="number" id="item-qty" min="1" max="99" value="1" title="Menge" />
         <input type="text" id="item-input" placeholder="Neuen Eintrag hinzufügen …" autocomplete="off" />
         <button type="submit" class="btn btn-small">+ Hinzufügen</button>
       </form>
@@ -1071,7 +1084,7 @@ function renderItems(list) {
     <div class="list-item ${i.done ? 'done' : ''}" data-id="${i.id}">
       <label class="item-check">
         <input type="checkbox" ${i.done ? 'checked' : ''} data-toggle="${i.id}" />
-        <span class="item-text">${escapeHtml(i.text)}</span>
+        <span class="item-text">${i.qty && i.qty > 1 ? `<b>${i.qty}×</b> ` : ''}${escapeHtml(i.text)}</span>
       </label>
       ${i.done && i.doneBy ? `<span class="item-meta">${escapeHtml(shortName(emails[i.doneBy] || i.doneBy))}</span>` : ''}
       <button class="item-del" data-del="${i.id}" title="Löschen">✕</button>
@@ -1101,13 +1114,18 @@ function shortName(s) {
 
 async function addItem(list) {
   const input = $('item-input');
+  const qtyInput = $('item-qty');
   const text = input.value.trim();
   if (!text) return;
+  const qty = Math.max(1, Math.min(99, parseInt(qtyInput.value, 10) || 1));
   input.value = '';
+  qtyInput.value = '1';
+  input.focus();
   const maxOrder = listItems.reduce((m, i) => Math.max(m, i.order || 0), 0);
   try {
     await addDoc(collection(db, 'lists', list.id, 'items'), {
       text,
+      qty,
       done: false,
       order: maxOrder + 1,
       createdBy: currentUser.uid,
@@ -1233,6 +1251,131 @@ function openListSettingsModal(list) {
       $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
     }
   });
+}
+
+// ── „Zu Datum springen"-Modal ─────────────────────────────────
+function openJumpToModal() {
+  const today = new Date();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Zu Datum springen</h2>
+      <div class="field">
+        <label>Datum</label>
+        <input type="date" id="jump-date" value="${toLocalInput(today, true)}" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn" id="go-btn">Springen</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  $('jump-date').focus();
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  const go = () => {
+    const val = $('jump-date').value;
+    if (val && fcInstance) fcInstance.gotoDate(val);
+    overlay.remove();
+  };
+  $('go-btn').addEventListener('click', go);
+  $('jump-date').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+}
+
+// ── Globale Termin-Suche ──────────────────────────────────────
+async function openSearchModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal modal-wide">
+      <h2>Termine suchen</h2>
+      <div class="field">
+        <input type="text" id="search-input" placeholder="Titel oder Notiz suchen …" autocomplete="off" autofocus />
+      </div>
+      <div id="search-results" class="search-results">
+        <div class="empty" style="padding:1rem;"><p>Lade Termine …</p></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Schließen</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  // Alle Events aller sichtbaren Kalender einmal laden
+  const allEvents = [];
+  try {
+    await Promise.all(calendars.map(async c => {
+      const snap = await getDocs(collection(db, 'calendars', c.id, 'events'));
+      snap.forEach(d => {
+        const data = d.data();
+        allEvents.push({
+          id: d.id, calendar: c,
+          title: data.title || '', note: data.note || '',
+          start: tsToDate(data.start),
+          allDay: !!data.allDay,
+          recurrence: data.recurrence || 'none',
+          raw: { id: d.id, ...data }
+        });
+      });
+    }));
+  } catch (err) {
+    $('search-results').innerHTML = `<div class="msg msg-error">Fehler: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  const input = $('search-input');
+  const results = $('search-results');
+
+  const doSearch = () => {
+    const q = input.value.trim().toLowerCase();
+    if (!q) {
+      results.innerHTML = `<div class="empty" style="padding:1rem;"><p>${allEvents.length} Termine geladen. Suchbegriff eingeben.</p></div>`;
+      return;
+    }
+    const matches = allEvents.filter(e =>
+      e.title.toLowerCase().includes(q) || e.note.toLowerCase().includes(q)
+    );
+    if (!matches.length) {
+      results.innerHTML = `<div class="empty" style="padding:1rem;"><p>Keine Treffer für „${escapeHtml(q)}".</p></div>`;
+      return;
+    }
+    matches.sort((a, b) => (a.start?.getTime() || 0) - (b.start?.getTime() || 0));
+    results.innerHTML = matches.map((e, i) => `
+      <div class="search-hit" data-idx="${i}">
+        <div class="search-hit-title">
+          <span class="color-dot" style="background:${escapeHtml(e.calendar.color)};"></span>
+          ${escapeHtml(e.title)}
+          ${e.recurrence !== 'none' ? '<span class="cal-hh-badge">wiederkehrend</span>' : ''}
+        </div>
+        <div class="search-hit-meta">
+          ${e.start ? formatDate(e.start, e.allDay) : ''} · ${escapeHtml(e.calendar.name)}
+        </div>
+      </div>
+    `).join('');
+    results.querySelectorAll('.search-hit').forEach(row => {
+      row.addEventListener('click', () => {
+        const hit = matches[parseInt(row.dataset.idx, 10)];
+        overlay.remove();
+        openCalendar(hit.calendar);
+        // FC braucht kurzen Moment bis fertig, dann gotoDate
+        setTimeout(() => { if (fcInstance && hit.start) fcInstance.gotoDate(hit.start); }, 60);
+      });
+    });
+  };
+  input.addEventListener('input', doSearch);
+  doSearch();
+}
+
+function formatDate(d, allDay) {
+  const opts = allDay
+    ? { day: '2-digit', month: '2-digit', year: 'numeric' }
+    : { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+  return d.toLocaleString('de-DE', opts) + (allDay ? '' : ' Uhr');
 }
 
 // ── Termin-Modal ──────────────────────────────────────────────
