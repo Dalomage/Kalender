@@ -1688,9 +1688,18 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// ── Service Worker ────────────────────────────────────────────
+// ── Service Worker + Auto-Update ──────────────────────────────
 if ('serviceWorker' in navigator) {
+  let hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    // Nur nach echtem Update reloaden — nicht beim allerersten Register
+    if (hadController) window.location.reload();
+    hadController = true;
+  });
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      // Alle 60 Sekunden nach neuer Version fragen (nur im aktiven Tab)
+      setInterval(() => reg.update().catch(() => {}), 60_000);
+    }).catch(() => {});
   });
 }
