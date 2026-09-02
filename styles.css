@@ -288,6 +288,14 @@ input, select, textarea { font-family: inherit; }
 
 .fc .fc-jumpTo-button { font-size: 0.9rem; }
 
+.invite-code {
+  font-family: 'Courier New', monospace;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--primary);
+}
+
 .list-items {
   background: var(--surface);
   border: 1px solid var(--border);

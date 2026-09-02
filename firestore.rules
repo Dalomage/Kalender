@@ -7,7 +7,35 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 
+    // ── Einladungscodes ───────────────────────────────────────
+    // Doc-ID = Code (z.B. "AB3XZK9M"). Daten: householdId, createdBy.
+    match /invites/{code} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.uid
+        && exists(/databases/$(database)/documents/households/$(request.resource.data.householdId))
+        && get(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.owner == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.createdBy == request.auth.uid;
+    }
+
     match /households/{hhId} {
+      function isOwner() {
+        return request.auth != null && resource.data.members[request.auth.uid] == 'owner';
+      }
+      function selfJoinWithInvite() {
+        let code = request.resource.data.get('_lastJoinCode', '');
+        return request.auth != null
+          && !(request.auth.uid in resource.data.members)
+          && request.resource.data.members[request.auth.uid] == 'member'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberEmails', '_lastJoinCode'])
+          && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid])
+          && request.resource.data.memberEmails.diff(resource.data.memberEmails).affectedKeys().hasOnly([request.auth.uid])
+          && code != ''
+          && exists(/databases/$(database)/documents/invites/$(code))
+          && get(/databases/$(database)/documents/invites/$(code)).data.householdId == hhId;
+      }
+
       allow read: if request.auth != null
         && request.auth.uid in resource.data.members;
 
@@ -15,8 +43,7 @@ service cloud.firestore {
         && request.resource.data.owner == request.auth.uid
         && request.resource.data.members[request.auth.uid] == 'owner';
 
-      allow update: if request.auth != null
-        && resource.data.members[request.auth.uid] == 'owner';
+      allow update: if isOwner() || selfJoinWithInvite();
 
       allow delete: if request.auth != null
         && resource.data.owner == request.auth.uid;
@@ -77,7 +104,6 @@ service cloud.firestore {
       }
     }
 
-    // ── Listen (Einkauf / To-Do) ──────────────────────────────
     match /lists/{listId} {
       function isDirectMember() {
         return request.auth != null

@@ -310,7 +310,10 @@ function renderHome() {
     <main class="content">
       <div class="section-title">
         <span>Haushalte</span>
-        <button class="btn btn-small" id="new-hh-btn">+ Neuer Haushalt</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-small" id="join-hh-btn">🔗 Beitreten</button>
+          <button class="btn btn-small" id="new-hh-btn">+ Neuer Haushalt</button>
+        </div>
       </div>
       <div id="households"></div>
 
@@ -329,6 +332,7 @@ function renderHome() {
   `;
   wireLogout();
   $('new-hh-btn').addEventListener('click', openNewHouseholdModal);
+  $('join-hh-btn').addEventListener('click', openJoinHouseholdModal);
   $('new-cal-btn').addEventListener('click', () => openNewCalendarModal(null));
   $('new-list-btn').addEventListener('click', () => openNewListModal(null));
 
@@ -442,7 +446,7 @@ function renderHousehold() {
     <main class="content">
       <div class="section-title">
         <span>Mitglieder</span>
-        ${isOwner ? '<button class="btn btn-small" id="invite-btn">+ Einladen</button>' : ''}
+        ${isOwner ? '<button class="btn btn-small" id="invite-btn">🔗 Einladungscodes</button>' : ''}
       </div>
       <div id="members"></div>
 
@@ -621,56 +625,163 @@ function openNewHouseholdModal() {
   });
 }
 
-// ── Einladen (E-Mail-Lookup) ──────────────────────────────────
-function openInviteModal(hh) {
+// ── Einladungscodes ───────────────────────────────────────────
+const INVITE_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ohne I, O, 0, 1
+function generateInviteCode(len = 8) {
+  const arr = new Uint32Array(len);
+  crypto.getRandomValues(arr);
+  let out = '';
+  for (let i = 0; i < len; i++) out += INVITE_CODE_CHARS[arr[i] % INVITE_CODE_CHARS.length];
+  return out;
+}
+
+async function openInviteModal(hh) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
-    <div class="modal">
-      <h2>Person einladen</h2>
+    <div class="modal modal-wide">
+      <h2>Einladungscodes für „${escapeHtml(hh.name)}"</h2>
       <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">
-        Die Person muss sich vorher unter <b>kalenderkaiser.pages.dev</b> ein Konto erstellt haben.
+        Erstelle einen Code und schick ihn per Nachricht an die Person.
+        Sie wählt in ihrer App „🔗 Beitreten" und gibt den Code ein.
       </p>
       <div id="modal-msg"></div>
-      <div class="field">
-        <label>E-Mail der Person</label>
-        <input type="email" id="inv-email" placeholder="frau@example.de" required />
-      </div>
+      <div id="codes-list"><div class="empty" style="padding:1rem;"><p>Lade Codes …</p></div></div>
       <div class="modal-actions">
-        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
-        <button class="btn" id="invite-btn">Einladen</button>
+        <button class="btn btn-secondary" id="cancel-btn">Schließen</button>
+        <button class="btn" id="new-code-btn">+ Neuen Code erstellen</button>
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
-  $('inv-email').focus();
   $('cancel-btn').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-  $('invite-btn').addEventListener('click', async () => {
-    const email = $('inv-email').value.trim().toLowerCase();
-    if (!email) return;
-    const btn = $('invite-btn');
+
+  const listEl = $('codes-list');
+
+  async function refreshCodes() {
+    try {
+      const snap = await getDocs(query(collection(db, 'invites'), where('householdId', '==', hh.id)));
+      const codes = [];
+      snap.forEach(d => codes.push({ id: d.id, ...d.data() }));
+      if (!codes.length) {
+        listEl.innerHTML = `<div class="empty" style="padding:1rem;"><p>Noch kein Code erstellt.</p></div>`;
+        return;
+      }
+      listEl.innerHTML = `<div class="member-list">${codes.map(c => `
+        <div class="member-row">
+          <div>
+            <div class="invite-code">${escapeHtml(c.id)}</div>
+            <div class="member-role">Gültig bis widerrufen</div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-secondary btn-small" data-copy="${escapeHtml(c.id)}">Kopieren</button>
+            <button class="btn btn-danger btn-small" data-revoke="${escapeHtml(c.id)}">Widerrufen</button>
+          </div>
+        </div>
+      `).join('')}</div>`;
+      listEl.querySelectorAll('[data-copy]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(btn.dataset.copy);
+            btn.textContent = '✓ Kopiert';
+            setTimeout(() => { btn.textContent = 'Kopieren'; }, 1500);
+          } catch {
+            prompt('Code manuell kopieren:', btn.dataset.copy);
+          }
+        });
+      });
+      listEl.querySelectorAll('[data-revoke]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm(`Code „${btn.dataset.revoke}" widerrufen?`)) return;
+          try {
+            await deleteDoc(doc(db, 'invites', btn.dataset.revoke));
+            await refreshCodes();
+          } catch (err) {
+            alert('Fehler: ' + err.message);
+          }
+        });
+      });
+    } catch (err) {
+      listEl.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  $('new-code-btn').addEventListener('click', async () => {
+    const btn = $('new-code-btn');
     btn.disabled = true;
     try {
-      const q = query(collection(db, 'users'), where('email', '==', email));
-      const snap = await getDocs(q);
-      if (snap.empty) {
-        throw new Error(`Kein Konto mit dieser E-Mail gefunden. Die Person muss sich zuerst registrieren.`);
-      }
-      const targetUid = snap.docs[0].id;
-      if (hh.members?.[targetUid]) {
-        throw new Error(`Diese Person ist bereits im Haushalt.`);
-      }
-      await updateDoc(doc(db, 'households', hh.id), {
-        [`members.${targetUid}`]: 'member',
-        [`memberEmails.${targetUid}`]: email
+      const code = generateInviteCode();
+      await setDoc(doc(db, 'invites', code), {
+        householdId: hh.id,
+        createdBy: currentUser.uid,
+        createdAt: serverTimestamp()
+      });
+      await refreshCodes();
+    } catch (err) {
+      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+    }
+    btn.disabled = false;
+  });
+
+  refreshCodes();
+}
+
+function openJoinHouseholdModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Haushalt beitreten</h2>
+      <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">
+        Gib den Einladungscode ein, den du bekommen hast.
+      </p>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Einladungscode</label>
+        <input type="text" id="join-code" placeholder="z.B. AB3XZK9M" style="text-transform:uppercase;font-family:monospace;letter-spacing:2px;" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn" id="join-btn">Beitreten</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  $('join-code').focus();
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  const submit = async () => {
+    const code = $('join-code').value.trim().toUpperCase();
+    if (!code) return;
+    const btn = $('join-btn');
+    btn.disabled = true;
+    try {
+      const inviteRef = doc(db, 'invites', code);
+      const inviteSnap = await getDocs(query(collection(db, 'invites'), where('__name__', '==', code)));
+      if (inviteSnap.empty) throw new Error('Ungültiger oder abgelaufener Code.');
+      const invite = inviteSnap.docs[0].data();
+      const hhId = invite.householdId;
+
+      // Prüfen ob wir schon Mitglied sind — dafür müsste household lesbar sein, was ohne Mitgliedschaft fehlschlägt.
+      // Also: Update direkt versuchen. Rules verhindern doppeltes Beitreten.
+      await updateDoc(doc(db, 'households', hhId), {
+        [`members.${currentUser.uid}`]: 'member',
+        [`memberEmails.${currentUser.uid}`]: currentUser.email,
+        _lastJoinCode: code
       });
       overlay.remove();
     } catch (err) {
-      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      const msg = err.code === 'permission-denied'
+        ? 'Beitritt fehlgeschlagen — du bist evtl. schon Mitglied, oder der Code passt nicht.'
+        : err.message;
+      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(msg)}</div>`;
       btn.disabled = false;
     }
-  });
+  };
+  $('join-btn').addEventListener('click', submit);
+  $('join-code').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
 }
 
 // ── Neuer Kalender (mit optionalem Haushalt) ──────────────────
