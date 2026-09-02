@@ -39,20 +39,25 @@ const appEl = $('app');
 let currentUser = null;
 
 // Live-Daten (aus Firestore, werden immer synchron gehalten)
-let households = [];        // { id, name, owner, members: {uid: role} }
-let calendars = [];         // { id, name, color, owner, householdId?, members: {uid: role} }
+let households = [];
+let calendars = [];
+let lists = [];
 const unsubs = {
   households: null,
   calendarsDirect: null,
   calendarsHousehold: null,
-  events: null
+  listsDirect: null,
+  listsHousehold: null,
+  events: null,
+  items: null
 };
 let fcInstance = null;
 
-// aktuelle Ansicht: 'home' | 'household' | 'calendar'
+// aktuelle Ansicht: 'home' | 'household' | 'calendar' | 'list'
 let view = 'home';
 let currentHousehold = null;
 let currentCalendar = null;
+let currentList = null;
 
 // ── Auth-State ────────────────────────────────────────────────
 onAuthStateChanged(auth, user => {
@@ -78,8 +83,10 @@ function stopAll() {
   if (fcInstance) { fcInstance.destroy(); fcInstance = null; }
   households = [];
   calendars = [];
+  lists = [];
   currentHousehold = null;
   currentCalendar = null;
+  currentList = null;
 }
 
 // ── Firestore-Subscriptions ───────────────────────────────────
@@ -105,33 +112,51 @@ function startSubscriptions() {
     },
     err => console.error('calendars direct sub failed:', err)
   );
+
+  // Listen, in denen ich direkt Mitglied bin
+  unsubs.listsDirect = onSnapshot(
+    query(collection(db, 'lists'), where(`members.${currentUser.uid}`, '==', 'owner')),
+    snap => {
+      mergeLists(snap, 'direct');
+      renderCurrent();
+    },
+    err => console.error('lists direct sub failed:', err)
+  );
 }
 
 function resubscribeHouseholdCalendars() {
   if (unsubs.calendarsHousehold) { unsubs.calendarsHousehold(); unsubs.calendarsHousehold = null; }
+  if (unsubs.listsHousehold) { unsubs.listsHousehold(); unsubs.listsHousehold = null; }
   const hhIds = households.map(h => h.id);
   if (hhIds.length === 0) {
-    // Nichts über Haushalte, aber vorhandene "household"-Einträge entfernen
     calendars = calendars.filter(c => c._source !== 'household');
+    lists = lists.filter(l => l._source !== 'household');
     return;
   }
-  // Firestore erlaubt bis zu 30 IDs in "in" — für ein Familientool reichlich
   unsubs.calendarsHousehold = onSnapshot(
     query(collection(db, 'calendars'), where('householdId', 'in', hhIds.slice(0, 30))),
-    snap => {
-      mergeCalendars(snap, 'household');
-      renderCurrent();
-    },
+    snap => { mergeCalendars(snap, 'household'); renderCurrent(); },
     err => console.error('calendars household sub failed:', err)
+  );
+  unsubs.listsHousehold = onSnapshot(
+    query(collection(db, 'lists'), where('householdId', 'in', hhIds.slice(0, 30))),
+    snap => { mergeLists(snap, 'household'); renderCurrent(); },
+    err => console.error('lists household sub failed:', err)
   );
 }
 
 function mergeCalendars(snap, source) {
-  // Alte Einträge dieser Quelle entfernen, neue rein, dedup nach id
   calendars = calendars.filter(c => c._source !== source);
   snap.forEach(d => {
-    if (calendars.find(c => c.id === d.id)) return; // schon über andere Quelle drin
+    if (calendars.find(c => c.id === d.id)) return;
     calendars.push({ id: d.id, _source: source, ...d.data() });
+  });
+}
+function mergeLists(snap, source) {
+  lists = lists.filter(l => l._source !== source);
+  snap.forEach(d => {
+    if (lists.find(l => l.id === d.id)) return;
+    lists.push({ id: d.id, _source: source, ...d.data() });
   });
 }
 
@@ -227,7 +252,6 @@ function friendlyAuthError(code) {
 function renderCurrent() {
   if (view === 'home') renderHome();
   else if (view === 'household') {
-    // Falls Haushalt gelöscht/verlassen wurde → zurück
     const fresh = households.find(h => h.id === currentHousehold?.id);
     if (!fresh) { goHome(); return; }
     currentHousehold = fresh;
@@ -235,9 +259,13 @@ function renderCurrent() {
   } else if (view === 'calendar') {
     const fresh = calendars.find(c => c.id === currentCalendar?.id);
     if (!fresh) { goHome(); return; }
-    // FullCalendar bleibt bestehen; nur die Header-Info aktualisieren
     updateCalendarHeader(fresh);
     currentCalendar = fresh;
+  } else if (view === 'list') {
+    const fresh = lists.find(l => l.id === currentList?.id);
+    if (!fresh) { goHome(); return; }
+    currentList = fresh;
+    updateListHeader(fresh);
   }
 }
 
@@ -245,7 +273,9 @@ function goHome() {
   view = 'home';
   currentHousehold = null;
   currentCalendar = null;
+  currentList = null;
   if (unsubs.events) { unsubs.events(); unsubs.events = null; }
+  if (unsubs.items) { unsubs.items(); unsubs.items = null; }
   if (fcInstance) { fcInstance.destroy(); fcInstance = null; }
   renderHome();
 }
@@ -269,6 +299,7 @@ const CALENDAR_COLORS = ['#14b8a6', '#3b82f6', '#a855f7', '#ec4899', '#f59e0b', 
 
 function renderHome() {
   const personalCals = calendars.filter(c => !c.householdId);
+  const personalLists = lists.filter(l => !l.householdId);
   appEl.innerHTML = `
     ${topbarHtml()}
     <main class="content">
@@ -283,14 +314,22 @@ function renderHome() {
         <button class="btn btn-small" id="new-cal-btn">+ Neuer Kalender</button>
       </div>
       <div id="personal-cals"></div>
+
+      <div class="section-title" style="margin-top:2rem;">
+        <span>Persönliche Listen</span>
+        <button class="btn btn-small" id="new-list-btn">+ Neue Liste</button>
+      </div>
+      <div id="personal-lists"></div>
     </main>
   `;
   wireLogout();
   $('new-hh-btn').addEventListener('click', openNewHouseholdModal);
   $('new-cal-btn').addEventListener('click', () => openNewCalendarModal(null));
+  $('new-list-btn').addEventListener('click', () => openNewListModal(null));
 
   renderHouseholdCards();
   renderPersonalCals(personalCals);
+  renderListCards($('personal-lists'), personalLists, 'Noch keine persönliche Liste. Anlegen z.B. für eigene To-Dos.');
 }
 
 function renderHouseholdCards() {
@@ -299,7 +338,7 @@ function renderHouseholdCards() {
   if (!households.length) {
     el.innerHTML = `
       <div class="empty" style="padding:1.5rem;">
-        <p>Noch kein Haushalt. Leg einen an und lade andere ein — dann seht ihr alle Kalender im Haushalt automatisch gemeinsam.</p>
+        <p>Noch kein Haushalt. Leg einen an und lade andere ein — dann seht ihr alle Kalender und Listen im Haushalt automatisch gemeinsam.</p>
       </div>
     `;
     return;
@@ -307,13 +346,14 @@ function renderHouseholdCards() {
   el.innerHTML = `<div class="calendar-grid">${households.map(h => {
     const memberCount = Object.keys(h.members || {}).length;
     const calCount = calendars.filter(c => c.householdId === h.id).length;
+    const listCount = lists.filter(l => l.householdId === h.id).length;
     return `
       <div class="calendar-card" data-hh="${h.id}">
         <div class="cal-name">
           <span style="font-size:1.3em;">🏠</span>
           ${escapeHtml(h.name)}
         </div>
-        <div class="cal-role">${memberCount} Mitglied${memberCount === 1 ? '' : 'er'} · ${calCount} Kalender</div>
+        <div class="cal-role">${memberCount} Mitglied${memberCount === 1 ? '' : 'er'} · ${calCount} Kalender · ${listCount} Liste${listCount === 1 ? '' : 'n'}</div>
       </div>
     `;
   }).join('')}</div>`;
@@ -321,6 +361,29 @@ function renderHouseholdCards() {
     card.addEventListener('click', () => {
       const hh = households.find(h => h.id === card.dataset.hh);
       if (hh) openHousehold(hh);
+    });
+  });
+}
+
+function renderListCards(el, ls, emptyText) {
+  if (!el) return;
+  if (!ls.length) {
+    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>${escapeHtml(emptyText)}</p></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="calendar-grid">${ls.map(l => `
+    <div class="calendar-card" data-list="${l.id}">
+      <div class="cal-name">
+        <span style="font-size:1.3em;">${escapeHtml(l.icon || '📝')}</span>
+        ${escapeHtml(l.name)}
+      </div>
+      <div class="cal-role">Liste</div>
+    </div>
+  `).join('')}</div>`;
+  el.querySelectorAll('[data-list]').forEach(card => {
+    card.addEventListener('click', () => {
+      const l = lists.find(x => x.id === card.dataset.list);
+      if (l) openList(l);
     });
   });
 }
@@ -380,6 +443,12 @@ function renderHousehold() {
       </div>
       <div id="hh-cals"></div>
 
+      <div class="section-title" style="margin-top:2rem;">
+        <span>Listen in diesem Haushalt</span>
+        <button class="btn btn-small" id="new-hh-list-btn">+ Neue Liste</button>
+      </div>
+      <div id="hh-lists"></div>
+
       ${isOwner ? `
         <div style="margin-top:3rem;text-align:right;">
           <button class="btn btn-danger btn-small" id="delete-hh-btn">Haushalt löschen</button>
@@ -400,9 +469,11 @@ function renderHousehold() {
     $('leave-hh-btn').addEventListener('click', () => confirmLeaveHousehold(hh));
   }
   $('new-hh-cal-btn').addEventListener('click', () => openNewCalendarModal(hh));
+  $('new-hh-list-btn').addEventListener('click', () => openNewListModal(hh));
 
   renderMembers(hh, isOwner);
   renderHhCals(hhCals);
+  renderListCards($('hh-lists'), lists.filter(l => l.householdId === hh.id), 'Noch keine Liste in diesem Haushalt.');
 }
 
 function renderMembers(hh, canEdit) {
@@ -822,6 +893,322 @@ function openCalendarSettingsModal(cal) {
     if (!confirm(`Kalender „${cal.name}" wirklich mit allen Terminen löschen?`)) return;
     try {
       await deleteDoc(doc(db, 'calendars', cal.id));
+      overlay.remove();
+      goHome();
+    } catch (err) {
+      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+    }
+  });
+}
+
+// ── Listen ────────────────────────────────────────────────────
+const LIST_ICONS = ['🛒', '✅', '📝', '📋', '🍳', '🎁', '🧳', '🔧'];
+
+function openNewListModal(preselectedHousehold) {
+  let selectedIcon = LIST_ICONS[0];
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const hhOptions = households.map(h =>
+    `<option value="${h.id}" ${preselectedHousehold?.id === h.id ? 'selected' : ''}>🏠 ${escapeHtml(h.name)}</option>`
+  ).join('');
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Neue Liste</h2>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Name</label>
+        <input type="text" id="list-name" placeholder="z.B. Einkauf" required />
+      </div>
+      <div class="field">
+        <label>Zuordnung</label>
+        <select id="list-hh">
+          <option value="">Persönlich (nur ich)</option>
+          ${hhOptions}
+        </select>
+      </div>
+      <div class="field">
+        <label>Symbol</label>
+        <div class="icon-picker">
+          ${LIST_ICONS.map((ic, i) => `
+            <div class="icon-swatch ${i === 0 ? 'selected' : ''}" data-icon="${ic}">${ic}</div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn" id="create-btn">Erstellen</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  $('list-name').focus();
+  overlay.querySelectorAll('.icon-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      overlay.querySelectorAll('.icon-swatch').forEach(s => s.classList.remove('selected'));
+      sw.classList.add('selected');
+      selectedIcon = sw.dataset.icon;
+    });
+  });
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  $('create-btn').addEventListener('click', async () => {
+    const name = $('list-name').value.trim();
+    if (!name) return;
+    const hhId = $('list-hh').value || null;
+    const btn = $('create-btn');
+    btn.disabled = true;
+    try {
+      const payload = {
+        name,
+        icon: selectedIcon,
+        owner: currentUser.uid,
+        members: { [currentUser.uid]: 'owner' },
+        createdAt: serverTimestamp()
+      };
+      if (hhId) payload.householdId = hhId;
+      await addDoc(collection(db, 'lists'), payload);
+      overlay.remove();
+    } catch (err) {
+      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+    }
+  });
+}
+
+let listItems = [];
+
+function openList(list) {
+  view = 'list';
+  currentList = list;
+  listItems = [];
+  if (unsubs.items) { unsubs.items(); unsubs.items = null; }
+
+  const hh = list.householdId ? households.find(h => h.id === list.householdId) : null;
+
+  appEl.innerHTML = `
+    ${topbarHtml(`
+      <button class="logout-btn" id="back-btn">← Zurück</button>
+      <span class="topbar-cal" id="list-header">
+        <span style="font-size:1.2em;">${escapeHtml(list.icon || '📝')}</span>
+        ${escapeHtml(list.name)}
+        ${hh ? `<span class="cal-hh-badge">🏠 ${escapeHtml(hh.name)}</span>` : ''}
+      </span>
+    `)}
+    <main class="content">
+      <form id="add-item-form" class="add-item-row">
+        <input type="text" id="item-input" placeholder="Neuen Eintrag hinzufügen …" autocomplete="off" />
+        <button type="submit" class="btn btn-small">+ Hinzufügen</button>
+      </form>
+      <div id="item-list"></div>
+      ${list.owner === currentUser.uid ? `
+        <div style="margin-top:1.5rem;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-small" id="clear-done-btn">Erledigte entfernen</button>
+          <button class="btn btn-secondary btn-small" id="list-settings-btn">Einstellungen</button>
+        </div>
+      ` : `
+        <div style="margin-top:1.5rem;">
+          <button class="btn btn-secondary btn-small" id="clear-done-btn">Erledigte entfernen</button>
+        </div>
+      `}
+    </main>
+  `;
+  wireLogout();
+  $('back-btn').addEventListener('click', () => hh ? openHousehold(hh) : goHome());
+  $('add-item-form').addEventListener('submit', e => {
+    e.preventDefault();
+    addItem(list);
+  });
+  $('clear-done-btn').addEventListener('click', () => clearDoneItems(list));
+  if (list.owner === currentUser.uid) {
+    $('list-settings-btn').addEventListener('click', () => openListSettingsModal(list));
+  }
+
+  unsubs.items = onSnapshot(collection(db, 'lists', list.id, 'items'), snap => {
+    listItems = [];
+    snap.forEach(d => listItems.push({ id: d.id, ...d.data() }));
+    renderItems(list);
+  }, err => console.error('items sub failed:', err));
+}
+
+function updateListHeader(list) {
+  const el = $('list-header');
+  if (!el) return;
+  const hh = list.householdId ? households.find(h => h.id === list.householdId) : null;
+  el.innerHTML = `
+    <span style="font-size:1.2em;">${escapeHtml(list.icon || '📝')}</span>
+    ${escapeHtml(list.name)}
+    ${hh ? `<span class="cal-hh-badge">🏠 ${escapeHtml(hh.name)}</span>` : ''}
+  `;
+}
+
+function renderItems(list) {
+  const el = $('item-list');
+  if (!el) return;
+  // Offene zuerst (nach Reihenfolge/Anlagedatum), erledigte unten
+  const open = listItems.filter(i => !i.done).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const done = listItems.filter(i => i.done).sort((a, b) => (b.doneAt?.seconds ?? 0) - (a.doneAt?.seconds ?? 0));
+  const emails = list.householdId
+    ? (households.find(h => h.id === list.householdId)?.memberEmails || {})
+    : {};
+
+  if (!open.length && !done.length) {
+    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>Noch keine Einträge.</p></div>`;
+    return;
+  }
+
+  const itemHtml = i => `
+    <div class="list-item ${i.done ? 'done' : ''}" data-id="${i.id}">
+      <label class="item-check">
+        <input type="checkbox" ${i.done ? 'checked' : ''} data-toggle="${i.id}" />
+        <span class="item-text">${escapeHtml(i.text)}</span>
+      </label>
+      ${i.done && i.doneBy ? `<span class="item-meta">${escapeHtml(shortName(emails[i.doneBy] || i.doneBy))}</span>` : ''}
+      <button class="item-del" data-del="${i.id}" title="Löschen">✕</button>
+    </div>
+  `;
+
+  el.innerHTML = `
+    <div class="list-items">${open.map(itemHtml).join('')}</div>
+    ${done.length ? `
+      <div class="list-section-label">Erledigt (${done.length})</div>
+      <div class="list-items">${done.map(itemHtml).join('')}</div>
+    ` : ''}
+  `;
+
+  el.querySelectorAll('[data-toggle]').forEach(cb => {
+    cb.addEventListener('change', () => toggleItem(list, cb.dataset.toggle, cb.checked));
+  });
+  el.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => deleteItem(list, btn.dataset.del));
+  });
+}
+
+function shortName(s) {
+  if (!s) return '';
+  return s.length > 20 ? s.split('@')[0] : s;
+}
+
+async function addItem(list) {
+  const input = $('item-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  const maxOrder = listItems.reduce((m, i) => Math.max(m, i.order || 0), 0);
+  try {
+    await addDoc(collection(db, 'lists', list.id, 'items'), {
+      text,
+      done: false,
+      order: maxOrder + 1,
+      createdBy: currentUser.uid,
+      createdAt: serverTimestamp()
+    });
+  } catch (err) {
+    alert('Fehler: ' + err.message);
+    input.value = text;
+  }
+}
+
+async function toggleItem(list, itemId, done) {
+  try {
+    await updateDoc(doc(db, 'lists', list.id, 'items', itemId), {
+      done,
+      doneBy: done ? currentUser.uid : null,
+      doneAt: done ? serverTimestamp() : null
+    });
+  } catch (err) {
+    alert('Fehler: ' + err.message);
+  }
+}
+
+async function deleteItem(list, itemId) {
+  try {
+    await deleteDoc(doc(db, 'lists', list.id, 'items', itemId));
+  } catch (err) {
+    alert('Fehler: ' + err.message);
+  }
+}
+
+async function clearDoneItems(list) {
+  const doneItems = listItems.filter(i => i.done);
+  if (!doneItems.length) return;
+  if (!confirm(`${doneItems.length} erledigte Einträge löschen?`)) return;
+  try {
+    await Promise.all(doneItems.map(i => deleteDoc(doc(db, 'lists', list.id, 'items', i.id))));
+  } catch (err) {
+    alert('Fehler: ' + err.message);
+  }
+}
+
+function openListSettingsModal(list) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const hhOptions = households.map(h =>
+    `<option value="${h.id}" ${list.householdId === h.id ? 'selected' : ''}>🏠 ${escapeHtml(h.name)}</option>`
+  ).join('');
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Listen-Einstellungen</h2>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Name</label>
+        <input type="text" id="ls-name" value="${escapeHtml(list.name)}" />
+      </div>
+      <div class="field">
+        <label>Zuordnung</label>
+        <select id="ls-hh">
+          <option value="">Persönlich (nur ich)</option>
+          ${hhOptions}
+        </select>
+      </div>
+      <div class="field">
+        <label>Symbol</label>
+        <div class="icon-picker">
+          ${LIST_ICONS.map(ic => `
+            <div class="icon-swatch ${list.icon === ic ? 'selected' : ''}" data-icon="${ic}">${ic}</div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn btn-danger" id="delete-btn">Löschen</button>
+        <button class="btn" id="save-btn">Speichern</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  let selectedIcon = list.icon || LIST_ICONS[0];
+  overlay.querySelectorAll('.icon-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      overlay.querySelectorAll('.icon-swatch').forEach(s => s.classList.remove('selected'));
+      sw.classList.add('selected');
+      selectedIcon = sw.dataset.icon;
+    });
+  });
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  $('save-btn').addEventListener('click', async () => {
+    const name = $('ls-name').value.trim();
+    if (!name) return;
+    const hhId = $('ls-hh').value || null;
+    try {
+      const payload = { name, icon: selectedIcon };
+      if (hhId) payload.householdId = hhId;
+      else payload.householdId = deleteField();
+      await updateDoc(doc(db, 'lists', list.id), payload);
+      overlay.remove();
+    } catch (err) {
+      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+    }
+  });
+
+  $('delete-btn').addEventListener('click', async () => {
+    if (!confirm(`Liste „${list.name}" wirklich mit allen Einträgen löschen?`)) return;
+    try {
+      // Items zuerst löschen (Firestore kaskadiert nicht automatisch)
+      const itemsSnap = await getDocs(collection(db, 'lists', list.id, 'items'));
+      await Promise.all(itemsSnap.docs.map(d => deleteDoc(d.ref)));
+      await deleteDoc(doc(db, 'lists', list.id));
       overlay.remove();
       goHome();
     } catch (err) {

@@ -2,13 +2,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Nutzerprofile ─────────────────────────────────────────
     match /users/{userId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // ── Haushalte ─────────────────────────────────────────────
     match /households/{hhId} {
       allow read: if request.auth != null
         && request.auth.uid in resource.data.members;
@@ -17,8 +15,6 @@ service cloud.firestore {
         && request.resource.data.owner == request.auth.uid
         && request.resource.data.members[request.auth.uid] == 'owner';
 
-      // Owner darf alles ändern (Mitglieder, Umbenennen)
-      // Mitglieder dürfen nur „austreten" (sich selbst rausschreiben)
       allow update: if request.auth != null
         && resource.data.members[request.auth.uid] == 'owner';
 
@@ -26,7 +22,6 @@ service cloud.firestore {
         && resource.data.owner == request.auth.uid;
     }
 
-    // ── Kalender ──────────────────────────────────────────────
     match /calendars/{calId} {
       function isDirectMember() {
         return request.auth != null
@@ -55,7 +50,6 @@ service cloud.firestore {
       allow delete: if request.auth != null
         && resource.data.owner == request.auth.uid;
 
-      // ── Events innerhalb eines Kalenders ───────────────────
       match /events/{eventId} {
         function calData() {
           return get(/databases/$(database)/documents/calendars/$(calId)).data;
@@ -64,58 +58,65 @@ service cloud.firestore {
           let c = calData();
           return request.auth != null && (
             request.auth.uid in c.members
-            || (
-              'householdId' in c && c.householdId != null
+            || ('householdId' in c && c.householdId != null
               && exists(/databases/$(database)/documents/households/$(c.householdId))
-              && request.auth.uid in get(/databases/$(database)/documents/households/$(c.householdId)).data.members
-            )
+              && request.auth.uid in get(/databases/$(database)/documents/households/$(c.householdId)).data.members)
           );
         }
         function canWriteCal() {
           let c = calData();
           return request.auth != null && (
             (request.auth.uid in c.members && c.members[request.auth.uid] in ['owner','editor'])
-            || (
-              'householdId' in c && c.householdId != null
+            || ('householdId' in c && c.householdId != null
               && exists(/databases/$(database)/documents/households/$(c.householdId))
-              && request.auth.uid in get(/databases/$(database)/documents/households/$(c.householdId)).data.members
-            )
+              && request.auth.uid in get(/databases/$(database)/documents/households/$(c.householdId)).data.members)
           );
         }
         allow read: if canReadCal();
         allow write: if canWriteCal();
       }
+    }
 
-      // ── Listen (Einkauf/To-Do) ────────────────────────────
-      match /lists/{listId} {
-        function calData() {
-          return get(/databases/$(database)/documents/calendars/$(calId)).data;
+    // ── Listen (Einkauf / To-Do) ──────────────────────────────
+    match /lists/{listId} {
+      function isDirectMember() {
+        return request.auth != null
+          && request.auth.uid in resource.data.members;
+      }
+      function isInHousehold() {
+        return request.auth != null
+          && 'householdId' in resource.data
+          && resource.data.householdId != null
+          && exists(/databases/$(database)/documents/households/$(resource.data.householdId))
+          && request.auth.uid in get(/databases/$(database)/documents/households/$(resource.data.householdId)).data.members;
+      }
+
+      allow read: if isDirectMember() || isInHousehold();
+
+      allow create: if request.auth != null
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.members[request.auth.uid] == 'owner';
+
+      allow update: if isDirectMember() || isInHousehold();
+
+      allow delete: if request.auth != null
+        && resource.data.owner == request.auth.uid;
+
+      match /items/{itemId} {
+        function listData() {
+          return get(/databases/$(database)/documents/lists/$(listId)).data;
         }
-        function canReadCal() {
-          let c = calData();
+        function canAccess() {
+          let l = listData();
           return request.auth != null && (
-            request.auth.uid in c.members
-            || ('householdId' in c && c.householdId != null
-              && exists(/databases/$(database)/documents/households/$(c.householdId))
-              && request.auth.uid in get(/databases/$(database)/documents/households/$(c.householdId)).data.members)
+            request.auth.uid in l.members
+            || ('householdId' in l && l.householdId != null
+              && exists(/databases/$(database)/documents/households/$(l.householdId))
+              && request.auth.uid in get(/databases/$(database)/documents/households/$(l.householdId)).data.members)
           );
         }
-        function canWriteCal() {
-          let c = calData();
-          return request.auth != null && (
-            (request.auth.uid in c.members && c.members[request.auth.uid] in ['owner','editor'])
-            || ('householdId' in c && c.householdId != null
-              && exists(/databases/$(database)/documents/households/$(c.householdId))
-              && request.auth.uid in get(/databases/$(database)/documents/households/$(c.householdId)).data.members)
-          );
-        }
-        allow read: if canReadCal();
-        allow write: if canWriteCal();
-
-        match /items/{itemId} {
-          allow read: if canReadCal();
-          allow write: if canWriteCal();
-        }
+        allow read: if canAccess();
+        allow write: if canAccess();
       }
     }
   }
