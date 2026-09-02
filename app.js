@@ -85,13 +85,16 @@ function stopAll() {
 // ── Firestore-Subscriptions ───────────────────────────────────
 function startSubscriptions() {
   // Haushalte, in denen ich Mitglied bin
-  unsubs.households = onSnapshot(collection(db, 'households'), snap => {
-    // Firestore-Rules filtern; wir bekommen nur, was wir lesen dürfen
-    households = [];
-    snap.forEach(d => households.push({ id: d.id, ...d.data() }));
-    resubscribeHouseholdCalendars();
-    renderCurrent();
-  }, err => console.error('households sub failed:', err));
+  unsubs.households = onSnapshot(
+    query(collection(db, 'households'), where(`members.${currentUser.uid}`, 'in', ['owner', 'member'])),
+    snap => {
+      households = [];
+      snap.forEach(d => households.push({ id: d.id, ...d.data() }));
+      resubscribeHouseholdCalendars();
+      renderCurrent();
+    },
+    err => console.error('households sub failed:', err)
+  );
 
   // Kalender, in denen ich direkt Mitglied bin
   unsubs.calendarsDirect = onSnapshot(
