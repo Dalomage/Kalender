@@ -151,6 +151,48 @@ input, select, textarea { font-family: inherit; }
 }
 .btn-secondary:hover { background: var(--border); }
 .btn-danger { background: var(--danger); }
+.btn-small { width: auto; padding: 8px 14px; font-size: 0.85rem; }
+
+.field select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+.field select:focus { outline: none; border-color: var(--primary); }
+
+.member-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.member-row:last-child { border-bottom: 0; }
+.member-name { font-weight: 500; font-size: 0.95rem; }
+.member-role { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+
+.cal-hh-badge {
+  font-size: 0.7rem;
+  color: var(--muted);
+  background: var(--surface2);
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 4px;
+  letter-spacing: 0.5px;
+}
+@media (max-width: 600px) {
+  .cal-hh-badge { display: none; }
+}
 
 .msg {
   padding: 10px 12px;
