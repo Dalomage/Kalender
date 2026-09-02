@@ -3,7 +3,7 @@
 Gemeinsamer Kalender-Webapp für Familie und Freunde. Login-basiert, mehrere
 Kalender pro Konto, Freigaben mit Rollen (Owner / Editor / Viewer).
 
-Live-App: _wird nach Cloudflare-Deploy hier eingetragen_
+Live-App: https://kalenderkaiser.pages.dev
 
 ## Stack
 
@@ -54,8 +54,8 @@ calendars/{calId}/lists/{id}    Listen (name, type: shopping/todo)
 - [x] Login / Registrierung mit Email + Passwort
 - [x] Kalender anlegen mit Farbwahl
 - [x] Kalender-Übersicht für angemeldeten Nutzer
-- [ ] Kalender öffnen und Termine sehen (FullCalendar-Integration)
-- [ ] Termine anlegen / bearbeiten / löschen
+- [x] Kalender öffnen — Monats-/Wochen-/Listenansicht mit FullCalendar
+- [x] Termine anlegen / bearbeiten / löschen (Titel, Zeit, ganztägig, Notiz)
 - [ ] Wiederkehrende Termine
 - [ ] Erinnerungen (Web Push via FCM)
 - [ ] Kalender mit anderen teilen
