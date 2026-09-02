@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0d9488">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kalender">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="logo.png">
+<link rel="stylesheet" href="styles.css">
+<title>📅 Familien-Kalender</title>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div style="color: var(--muted); font-size: 0.85rem;">Lade …</div>
+</div>
+
+<div id="login" class="hidden"></div>
+
+<div id="app" class="hidden"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
