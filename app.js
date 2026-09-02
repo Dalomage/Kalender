@@ -1031,6 +1031,13 @@ function openList(list) {
     listItems = [];
     snap.forEach(d => listItems.push({ id: d.id, ...d.data() }));
     renderItems(list);
+
+    // Selbstheilung: openCount aus den geladenen Items neu berechnen
+    const actual = listItems.filter(i => !i.done).length;
+    const stored = currentList?.openCount || 0;
+    if (currentList && stored !== actual) {
+      updateDoc(doc(db, 'lists', list.id), { openCount: actual }).catch(() => {});
+    }
   }, err => console.error('items sub failed:', err));
 }
 
