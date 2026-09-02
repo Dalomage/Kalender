@@ -8,7 +8,7 @@ import {
 import {
   getFirestore, collection, query, where, onSnapshot, getDocs,
   addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, Timestamp,
-  deleteField
+  deleteField, increment
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
 
 // ── Firebase init ─────────────────────────────────────────────
@@ -371,15 +371,19 @@ function renderListCards(el, ls, emptyText) {
     el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>${escapeHtml(emptyText)}</p></div>`;
     return;
   }
-  el.innerHTML = `<div class="calendar-grid">${ls.map(l => `
+  el.innerHTML = `<div class="calendar-grid">${ls.map(l => {
+    const open = l.openCount || 0;
+    return `
     <div class="calendar-card" data-list="${l.id}">
       <div class="cal-name">
         <span style="font-size:1.3em;">${escapeHtml(l.icon || '📝')}</span>
         ${escapeHtml(l.name)}
+        ${open > 0 ? `<span class="count-badge">${open}</span>` : ''}
       </div>
-      <div class="cal-role">Liste</div>
+      <div class="cal-role">${open > 0 ? `${open} offen` : 'Liste'}</div>
     </div>
-  `).join('')}</div>`;
+    `;
+  }).join('')}</div>`;
   el.querySelectorAll('[data-list]').forEach(card => {
     card.addEventListener('click', () => {
       const l = lists.find(x => x.id === card.dataset.list);
@@ -1102,6 +1106,7 @@ async function addItem(list) {
       createdBy: currentUser.uid,
       createdAt: serverTimestamp()
     });
+    await updateDoc(doc(db, 'lists', list.id), { openCount: increment(1) });
   } catch (err) {
     alert('Fehler: ' + err.message);
     input.value = text;
@@ -1115,14 +1120,20 @@ async function toggleItem(list, itemId, done) {
       doneBy: done ? currentUser.uid : null,
       doneAt: done ? serverTimestamp() : null
     });
+    await updateDoc(doc(db, 'lists', list.id), { openCount: increment(done ? -1 : 1) });
   } catch (err) {
     alert('Fehler: ' + err.message);
   }
 }
 
 async function deleteItem(list, itemId) {
+  const item = listItems.find(i => i.id === itemId);
+  const wasOpen = item && !item.done;
   try {
     await deleteDoc(doc(db, 'lists', list.id, 'items', itemId));
+    if (wasOpen) {
+      await updateDoc(doc(db, 'lists', list.id), { openCount: increment(-1) });
+    }
   } catch (err) {
     alert('Fehler: ' + err.message);
   }

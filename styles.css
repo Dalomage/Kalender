@@ -195,6 +195,21 @@ input, select, textarea { font-family: inherit; }
 }
 
 /* ── Listen ── */
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-left: auto;
+}
+
 .icon-picker {
   display: flex;
   gap: 8px;
@@ -426,6 +441,7 @@ input, select, textarea { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 .color-dot {
   width: 12px; height: 12px;
