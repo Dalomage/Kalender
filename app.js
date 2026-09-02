@@ -721,14 +721,17 @@ function openCalendar(cal) {
     fcInstance.removeAllEvents();
     snap.forEach(d => {
       const data = d.data();
-      fcInstance.addEvent({
-        id: d.id,
-        title: data.title,
-        start: tsToDate(data.start),
-        end: tsToDate(data.end),
-        allDay: !!data.allDay,
-        color: cal.color,
-        extendedProps: { _doc: { id: d.id, ...data } }
+      const occurrences = expandRecurrence(data);
+      occurrences.forEach((occ, idx) => {
+        fcInstance.addEvent({
+          id: `${d.id}__${idx}`,
+          title: data.title,
+          start: occ.start,
+          end: occ.end,
+          allDay: !!data.allDay,
+          color: cal.color,
+          extendedProps: { _doc: { id: d.id, ...data } }
+        });
       });
     });
   }, err => console.error('events sub failed:', err));
@@ -856,6 +859,16 @@ function openEventModal(cal, existing, canEdit = true) {
         <input type="${allDay ? 'date' : 'datetime-local'}" id="ev-end" value="${endDefault}" ${canEdit ? '' : 'disabled'} />
       </div>
       <div class="field">
+        <label>Wiederholung</label>
+        <select id="ev-recurrence" ${canEdit ? '' : 'disabled'}>
+          <option value="none">Keine</option>
+          <option value="daily">Täglich</option>
+          <option value="weekly">Wöchentlich</option>
+          <option value="monthly">Monatlich</option>
+          <option value="yearly">Jährlich (z.B. Geburtstag)</option>
+        </select>
+      </div>
+      <div class="field">
         <label>Notiz (optional)</label>
         <textarea id="ev-note" rows="2" ${canEdit ? '' : 'disabled'}>${escapeHtml(existing?.note || '')}</textarea>
       </div>
@@ -868,6 +881,7 @@ function openEventModal(cal, existing, canEdit = true) {
   `;
   document.body.appendChild(overlay);
   if (canEdit) $('ev-title').focus();
+  $('ev-recurrence').value = existing?.recurrence || 'none';
 
   const allDayCheckbox = $('ev-allday');
   allDayCheckbox?.addEventListener('change', () => {
@@ -905,6 +919,7 @@ function openEventModal(cal, existing, canEdit = true) {
           end: Timestamp.fromDate(end),
           allDay: isAllDay,
           note,
+          recurrence: $('ev-recurrence').value || 'none',
           updatedAt: serverTimestamp()
         };
         if (isNew) {
@@ -940,6 +955,59 @@ function openEventModal(cal, existing, canEdit = true) {
 
 function showEvMsg(msg) {
   $('ev-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(msg)}</div>`;
+}
+
+// Wiederkehrende Termine expandieren:
+// Aus einem Firestore-Event mit recurrence-Feld werden alle sichtbaren
+// Vorkommen für die nächsten ~5 Jahre erzeugt (bzw. 100 Wochen bei weekly).
+function expandRecurrence(data) {
+  const start = tsToDate(data.start);
+  const end = tsToDate(data.end) || start;
+  if (!start) return [];
+  const duration = end.getTime() - start.getTime();
+  const rec = data.recurrence || 'none';
+  if (rec === 'none') return [{ start, end }];
+
+  const now = new Date();
+  const horizonYearsBack = 1;   // ein Jahr rückwärts sichtbar
+  const horizonYearsFwd = 5;    // fünf Jahre in die Zukunft
+  const limitPast = new Date(now.getFullYear() - horizonYearsBack, 0, 1);
+  const limitFuture = new Date(now.getFullYear() + horizonYearsFwd, 11, 31);
+
+  const out = [];
+  const push = d => {
+    out.push({ start: new Date(d), end: new Date(d.getTime() + duration) });
+  };
+
+  // Rückwärts nur bis limitPast, vorwärts bis limitFuture. Absoluter Cap 500.
+  const cap = 500;
+  const step = new Date(start);
+  // Erst mal vorwärts vom Startdatum
+  while (step <= limitFuture && out.length < cap) {
+    if (step >= limitPast) push(step);
+    advance(step, rec);
+  }
+  // Rückwärts (nur wenn Start in Zukunft liegt)
+  const stepBack = new Date(start);
+  retreat(stepBack, rec);
+  while (stepBack >= limitPast && out.length < cap) {
+    push(stepBack);
+    retreat(stepBack, rec);
+  }
+  return out;
+}
+
+function advance(d, rec) {
+  if (rec === 'daily') d.setDate(d.getDate() + 1);
+  else if (rec === 'weekly') d.setDate(d.getDate() + 7);
+  else if (rec === 'monthly') d.setMonth(d.getMonth() + 1);
+  else if (rec === 'yearly') d.setFullYear(d.getFullYear() + 1);
+}
+function retreat(d, rec) {
+  if (rec === 'daily') d.setDate(d.getDate() - 1);
+  else if (rec === 'weekly') d.setDate(d.getDate() - 7);
+  else if (rec === 'monthly') d.setMonth(d.getMonth() - 1);
+  else if (rec === 'yearly') d.setFullYear(d.getFullYear() - 1);
 }
 
 function tsToDate(ts) {
