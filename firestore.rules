@@ -104,6 +104,28 @@ service cloud.firestore {
       }
     }
 
+    // ── Notizen (Haushalts-Pinnwand) ──────────────────────────
+    match /notes/{noteId} {
+      function isDirectMember() {
+        return request.auth != null
+          && request.auth.uid in resource.data.members;
+      }
+      function isInHousehold() {
+        return request.auth != null
+          && 'householdId' in resource.data
+          && resource.data.householdId != null
+          && exists(/databases/$(database)/documents/households/$(resource.data.householdId))
+          && request.auth.uid in get(/databases/$(database)/documents/households/$(resource.data.householdId)).data.members;
+      }
+      allow read: if isDirectMember() || isInHousehold();
+      allow create: if request.auth != null
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.members[request.auth.uid] == 'owner';
+      allow update: if isDirectMember() || isInHousehold();
+      allow delete: if request.auth != null
+        && (resource.data.owner == request.auth.uid || isInHousehold());
+    }
+
     match /lists/{listId} {
       function isDirectMember() {
         return request.auth != null

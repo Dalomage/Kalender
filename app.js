@@ -42,12 +42,15 @@ let currentUser = null;
 let households = [];
 let calendars = [];
 let lists = [];
+let notes = [];
 const unsubs = {
   households: null,
   calendarsDirect: null,
   calendarsHousehold: null,
   listsDirect: null,
   listsHousehold: null,
+  notesDirect: null,
+  notesHousehold: null,
   events: null,
   items: null
 };
@@ -99,6 +102,7 @@ function stopAll() {
   households = [];
   calendars = [];
   lists = [];
+  notes = [];
   currentHousehold = null;
   currentCalendar = null;
   currentList = null;
@@ -184,15 +188,27 @@ function startSubscriptions() {
     },
     err => console.error('lists direct sub failed:', err)
   );
+
+  // Notizen, in denen ich direkt Mitglied bin
+  unsubs.notesDirect = onSnapshot(
+    query(collection(db, 'notes'), where(`members.${currentUser.uid}`, '==', 'owner')),
+    snap => {
+      mergeNotes(snap, 'direct');
+      renderCurrent();
+    },
+    err => console.error('notes direct sub failed:', err)
+  );
 }
 
 function resubscribeHouseholdCalendars() {
   if (unsubs.calendarsHousehold) { unsubs.calendarsHousehold(); unsubs.calendarsHousehold = null; }
   if (unsubs.listsHousehold) { unsubs.listsHousehold(); unsubs.listsHousehold = null; }
+  if (unsubs.notesHousehold) { unsubs.notesHousehold(); unsubs.notesHousehold = null; }
   const hhIds = households.map(h => h.id);
   if (hhIds.length === 0) {
     calendars = calendars.filter(c => c._source !== 'household');
     lists = lists.filter(l => l._source !== 'household');
+    notes = notes.filter(n => n._source !== 'household');
     return;
   }
   unsubs.calendarsHousehold = onSnapshot(
@@ -204,6 +220,11 @@ function resubscribeHouseholdCalendars() {
     query(collection(db, 'lists'), where('householdId', 'in', hhIds.slice(0, 30))),
     snap => { mergeLists(snap, 'household'); renderCurrent(); },
     err => console.error('lists household sub failed:', err)
+  );
+  unsubs.notesHousehold = onSnapshot(
+    query(collection(db, 'notes'), where('householdId', 'in', hhIds.slice(0, 30))),
+    snap => { mergeNotes(snap, 'household'); renderCurrent(); },
+    err => console.error('notes household sub failed:', err)
   );
 }
 
@@ -219,6 +240,13 @@ function mergeLists(snap, source) {
   snap.forEach(d => {
     if (lists.find(l => l.id === d.id)) return;
     lists.push({ id: d.id, _source: source, ...d.data() });
+  });
+}
+function mergeNotes(snap, source) {
+  notes = notes.filter(n => n._source !== source);
+  snap.forEach(d => {
+    if (notes.find(n => n.id === d.id)) return;
+    notes.push({ id: d.id, _source: source, ...d.data() });
   });
 }
 
@@ -429,6 +457,7 @@ function renderHome() {
         <button data-tab="dashboard" class="${homeTab === 'dashboard' ? 'active' : ''}">📊 Dashboard</button>
         <button data-tab="calendars" class="${homeTab === 'calendars' ? 'active' : ''}">📅 Kalender</button>
         <button data-tab="lists" class="${homeTab === 'lists' ? 'active' : ''}">📝 Listen</button>
+        <button data-tab="notes" class="${homeTab === 'notes' ? 'active' : ''}">📌 Notizen</button>
       </div>
 
       <div id="home-tab-content"></div>
@@ -455,6 +484,20 @@ function renderHomeTab() {
   if (homeTab === 'dashboard') renderDashboard(content);
   else if (homeTab === 'calendars') renderCalendarsTab(content);
   else if (homeTab === 'lists') renderListsTab(content);
+  else if (homeTab === 'notes') renderNotesTab(content);
+}
+
+function renderNotesTab(content) {
+  const personalNotes = notes.filter(n => !n.householdId);
+  content.innerHTML = `
+    <div class="section-title">
+      <span>Persönliche Notizen</span>
+      <button class="btn btn-small" id="new-note-btn">+ Neue Notiz</button>
+    </div>
+    <div id="personal-notes"></div>
+  `;
+  $('new-note-btn').addEventListener('click', () => openNoteModal(null, null));
+  renderNoteCards($('personal-notes'), personalNotes, 'Noch keine persönliche Notiz.');
 }
 
 function renderCalendarsTab(content) {
@@ -734,6 +777,12 @@ function renderHousehold() {
       </div>
       <div id="hh-lists"></div>
 
+      <div class="section-title" style="margin-top:2rem;">
+        <span>📌 Notizen im Haushalt</span>
+        <button class="btn btn-small" id="new-hh-note-btn">+ Neue Notiz</button>
+      </div>
+      <div id="hh-notes"></div>
+
       ${isOwner ? `
         <div style="margin-top:3rem;text-align:right;">
           <button class="btn btn-danger btn-small" id="delete-hh-btn">Haushalt löschen</button>
@@ -755,10 +804,12 @@ function renderHousehold() {
   }
   $('new-hh-cal-btn').addEventListener('click', () => openNewCalendarModal(hh));
   $('new-hh-list-btn').addEventListener('click', () => openNewListModal(hh));
+  $('new-hh-note-btn').addEventListener('click', () => openNoteModal(null, hh));
 
   renderMembers(hh, isOwner);
   renderHhCals(hhCals);
   renderListCards($('hh-lists'), lists.filter(l => l.householdId === hh.id), 'Noch keine Liste in diesem Haushalt.');
+  renderNoteCards($('hh-notes'), notes.filter(n => n.householdId === hh.id), 'Noch keine Notiz in diesem Haushalt.');
 }
 
 function renderMembers(hh, canEdit) {
@@ -1180,9 +1231,13 @@ function openCalendar(cal) {
     },
     eventColor: cal.color,
     selectable: canEdit,
-    editable: false,
+    editable: canEdit,
+    eventStartEditable: canEdit,
+    eventDurationEditable: canEdit,
     dateClick: canEdit ? info => openEventModal(cal, { start: info.dateStr, allDay: info.allDay }) : undefined,
     eventClick: info => openEventModal(cal, info.event.extendedProps._doc, canEdit),
+    eventDrop: info => handleEventChange(cal, info, 'drop'),
+    eventResize: info => handleEventChange(cal, info, 'resize'),
     events: (_info, success) => success([])
   });
   fcInstance.render();
@@ -1848,6 +1903,133 @@ function formatDate(d, allDay) {
   return d.toLocaleString('de-DE', opts) + (allDay ? '' : ' Uhr');
 }
 
+// ── Notizen ───────────────────────────────────────────────────
+const NOTE_COLORS = ['#fef08a', '#fed7aa', '#fecaca', '#e9d5ff', '#c7d2fe', '#bae6fd', '#bbf7d0', '#f5f5f4'];
+
+function renderNoteCards(el, ns, emptyText) {
+  if (!el) return;
+  if (!ns.length) {
+    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>${escapeHtml(emptyText)}</p></div>`;
+    return;
+  }
+  const sorted = [...ns].sort((a, b) => (b.updatedAt?.seconds ?? b.createdAt?.seconds ?? 0) - (a.updatedAt?.seconds ?? a.createdAt?.seconds ?? 0));
+  el.innerHTML = `<div class="notes-grid">${sorted.map(n => {
+    const color = n.color || NOTE_COLORS[0];
+    const authorName = n.createdBy ? nameFor(n.createdBy) : '';
+    return `
+      <div class="note-card" data-note="${n.id}" style="background:${escapeHtml(color)};">
+        <div class="note-text">${escapeHtml(n.text || '').replace(/\n/g, '<br>')}</div>
+        ${authorName ? `<div class="note-author">— ${escapeHtml(authorName)}</div>` : ''}
+      </div>
+    `;
+  }).join('')}</div>`;
+  el.querySelectorAll('[data-note]').forEach(card => {
+    card.addEventListener('click', () => {
+      const n = notes.find(x => x.id === card.dataset.note);
+      if (n) openNoteModal(n, null);
+    });
+  });
+  ensureNamesFor(sorted.map(n => n.createdBy).filter(Boolean), () => renderNoteCards(el, ns, emptyText));
+}
+
+function openNoteModal(existing, preselectedHousehold) {
+  const isNew = !existing;
+  let selectedColor = existing?.color || NOTE_COLORS[0];
+  const canEdit = isNew || existing.members?.[currentUser.uid] === 'owner' || (existing.householdId && households.find(h => h.id === existing.householdId));
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const hhOptions = households.map(h =>
+    `<option value="${h.id}" ${(existing?.householdId || preselectedHousehold?.id) === h.id ? 'selected' : ''}>🏠 ${escapeHtml(h.name)}</option>`
+  ).join('');
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>${isNew ? 'Neue Notiz' : 'Notiz bearbeiten'}</h2>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Text</label>
+        <textarea id="note-text" rows="6" placeholder="Was möchtest du festhalten?">${escapeHtml(existing?.text || '')}</textarea>
+      </div>
+      ${isNew ? `
+        <div class="field">
+          <label>Zuordnung</label>
+          <select id="note-hh">
+            <option value="">Persönlich (nur ich)</option>
+            ${hhOptions}
+          </select>
+        </div>
+      ` : ''}
+      <div class="field">
+        <label>Farbe</label>
+        <div class="color-picker">
+          ${NOTE_COLORS.map(c => `
+            <div class="color-swatch ${selectedColor === c ? 'selected' : ''}" data-color="${c}" style="background:${c};border-color:transparent;"></div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        ${!isNew ? '<button class="btn btn-danger" id="delete-btn">Löschen</button>' : ''}
+        <button class="btn" id="save-btn">${isNew ? 'Anlegen' : 'Speichern'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  $('note-text').focus();
+  overlay.querySelectorAll('.color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      overlay.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+      sw.classList.add('selected');
+      selectedColor = sw.dataset.color;
+    });
+  });
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  $('save-btn').addEventListener('click', async () => {
+    const text = $('note-text').value.trim();
+    if (!text) { $('modal-msg').innerHTML = `<div class="msg msg-error">Text darf nicht leer sein.</div>`; return; }
+    const btn = $('save-btn');
+    btn.disabled = true;
+    try {
+      if (isNew) {
+        const hhId = $('note-hh').value || null;
+        const payload = {
+          text,
+          color: selectedColor,
+          owner: currentUser.uid,
+          members: { [currentUser.uid]: 'owner' },
+          createdBy: currentUser.uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+        if (hhId) payload.householdId = hhId;
+        await addDoc(collection(db, 'notes'), payload);
+      } else {
+        await updateDoc(doc(db, 'notes', existing.id), {
+          text, color: selectedColor, updatedAt: serverTimestamp()
+        });
+      }
+      overlay.remove();
+    } catch (err) {
+      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+    }
+  });
+
+  const delBtn = $('delete-btn');
+  if (delBtn) {
+    delBtn.addEventListener('click', async () => {
+      if (!confirm('Diese Notiz wirklich löschen?')) return;
+      try {
+        await deleteDoc(doc(db, 'notes', existing.id));
+        overlay.remove();
+      } catch (err) {
+        $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      }
+    });
+  }
+}
+
 // ── Termin-Modal ──────────────────────────────────────────────
 function openEventModal(cal, existing, canEdit = true) {
   const isNew = !existing?.id;
@@ -2078,6 +2260,46 @@ function retreat(d, rec) {
   else if (rec === 'weekly') d.setDate(d.getDate() - 7);
   else if (rec === 'monthly') d.setMonth(d.getMonth() - 1);
   else if (rec === 'yearly') d.setFullYear(d.getFullYear() - 1);
+}
+
+// ── Termin per Drag/Resize verschieben ────────────────────────
+async function handleEventChange(cal, info, kind) {
+  const docData = info.event.extendedProps._doc;
+  if (!docData) { info.revert(); return; }
+  if (docData.recurrence && docData.recurrence !== 'none') {
+    const ok = confirm(
+      kind === 'resize'
+        ? 'Dauer ändern — gilt für die gesamte Serie. Fortfahren?'
+        : 'Dieser Termin gehört zu einer Serie. Verschieben ändert das Startdatum der Serie um denselben Betrag. Fortfahren?'
+    );
+    if (!ok) { info.revert(); return; }
+  }
+  try {
+    const oldStart = tsToDate(docData.start);
+    const oldEnd = tsToDate(docData.end) || oldStart;
+    const newStart = info.event.start;
+    const duration = info.event.end
+      ? (info.event.end.getTime() - info.event.start.getTime())
+      : (oldEnd.getTime() - oldStart.getTime());
+    // Für recurring: originalen Serien-Start um Delta shiften
+    let seriesStart = newStart;
+    if (docData.recurrence && docData.recurrence !== 'none') {
+      const clickedStart = tsToDate(docData.start);
+      // info.event.start ist die verschobene Instanz. Serien-Start = clickedStart + (newStart - Instanz-Original-Start)
+      // Aber wir haben die Original-Instanz-Zeit nicht direkt. Approximation: Delta = newStart - info.oldEvent.start
+      const delta = info.event.start.getTime() - info.oldEvent.start.getTime();
+      seriesStart = new Date(clickedStart.getTime() + delta);
+    }
+    await updateDoc(doc(db, 'calendars', cal.id, 'events', docData.id), {
+      start: Timestamp.fromDate(seriesStart),
+      end: Timestamp.fromDate(new Date(seriesStart.getTime() + duration)),
+      allDay: info.event.allDay,
+      updatedAt: serverTimestamp()
+    });
+  } catch (err) {
+    alert('Verschieben fehlgeschlagen: ' + err.message);
+    info.revert();
+  }
 }
 
 // ── Lokale Erinnerungen ───────────────────────────────────────
