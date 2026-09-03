@@ -304,9 +304,11 @@ input, select, textarea { font-family: inherit; }
   padding: 4px;
   border-radius: 10px;
   margin: 1.5rem 0 1rem;
+  flex-wrap: wrap;
 }
 .home-tabs button {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 10px 14px;
   border: 0;
   background: transparent;
@@ -316,12 +318,32 @@ input, select, textarea { font-family: inherit; }
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .home-tabs button:hover { color: var(--text); }
 .home-tabs button.active {
   background: var(--surface);
   color: var(--primary);
   font-weight: 600;
+}
+@media (max-width: 640px) {
+  .home-tabs {
+    gap: 2px;
+    padding: 3px;
+  }
+  .home-tabs button {
+    padding: 8px 6px;
+    font-size: 0.78rem;
+    flex: 1 1 0;
+  }
+}
+@media (max-width: 380px) {
+  .home-tabs button {
+    padding: 8px 4px;
+    font-size: 0.72rem;
+  }
 }
 
 /* ── Notizen (Pinnwand) ── */
