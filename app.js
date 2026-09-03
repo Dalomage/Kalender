@@ -1626,28 +1626,30 @@ function openCalendar(cal) {
   });
   fcInstance.render();
 
-  // Deutsche Feiertage für sichtbare Jahre einfügen (2 zurück, 5 nach vorn)
-  const nowYear = new Date().getFullYear();
-  for (let y = nowYear - 2; y <= nowYear + 5; y++) {
-    germanHolidays(y).forEach((h, idx) => {
-      const y2 = h.date.getFullYear();
-      const m2 = String(h.date.getMonth() + 1).padStart(2, '0');
-      const d2 = String(h.date.getDate()).padStart(2, '0');
-      fcInstance.addEvent({
-        id: `holiday_${y}_${idx}`,
-        title: '🎉 ' + h.name,
-        start: `${y2}-${m2}-${d2}`,
-        allDay: true,
-        backgroundColor: '#a855f7',
-        borderColor: '#a855f7',
-        textColor: '#ffffff',
-        classNames: ['fc-holiday'],
-        editable: false,
-        startEditable: false,
-        durationEditable: false,
-        extendedProps: { _holiday: true }
+  // Deutsche Feiertage nur wenn im Kalender aktiviert
+  if (cal.showHolidays) {
+    const nowYear = new Date().getFullYear();
+    for (let y = nowYear - 2; y <= nowYear + 5; y++) {
+      germanHolidays(y).forEach((h, idx) => {
+        const y2 = h.date.getFullYear();
+        const m2 = String(h.date.getMonth() + 1).padStart(2, '0');
+        const d2 = String(h.date.getDate()).padStart(2, '0');
+        fcInstance.addEvent({
+          id: `holiday_${y}_${idx}`,
+          title: '🎉 ' + h.name,
+          start: `${y2}-${m2}-${d2}`,
+          allDay: true,
+          backgroundColor: '#a855f7',
+          borderColor: '#a855f7',
+          textColor: '#ffffff',
+          classNames: ['fc-holiday'],
+          editable: false,
+          startEditable: false,
+          durationEditable: false,
+          extendedProps: { _holiday: true }
+        });
       });
-    });
+    }
   }
 
   unsubs.events = onSnapshot(collection(db, 'calendars', cal.id, 'events'), snap => {
@@ -1758,6 +1760,9 @@ function openCalendarSettingsModal(cal) {
           `).join('')}
         </div>
       </div>
+      <div class="field field-inline">
+        <label><input type="checkbox" id="cs-holidays" ${cal.showHolidays ? 'checked' : ''} /> 🎉 Deutsche Feiertage in diesem Kalender anzeigen</label>
+      </div>
       <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
         <button class="btn btn-secondary btn-small" id="export-ics-btn" style="width:100%;">📥 Als .ics exportieren</button>
         <div class="field-hint" style="text-align:center;margin-top:6px;">Datei in Google/Apple Calendar importieren</div>
@@ -1790,7 +1795,14 @@ function openCalendarSettingsModal(cal) {
       const payload = { name, color: selectedColor };
       if (hhId) payload.householdId = hhId;
       else payload.householdId = deleteField();
+      payload.showHolidays = document.getElementById('cs-holidays').checked;
       await updateDoc(doc(db, 'calendars', cal.id), payload);
+      // Falls Kalender-Detail gerade offen: neu öffnen damit Feiertage sofort erscheinen
+      if (currentCalendar?.id === cal.id) {
+        overlay.remove();
+        openCalendar({ ...cal, ...payload });
+        return;
+      }
       overlay.remove();
     } catch (err) {
       $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
