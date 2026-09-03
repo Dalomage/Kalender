@@ -1655,24 +1655,27 @@ function openCalendar(cal) {
       });
     });
   }
-  if (cal.showHamburg) {
+  if (cal.holidayState && cal.holidayState !== 'none') {
+    const state = cal.holidayState;
     yearsRange.forEach(y => {
-      hamburgHolidays(y).forEach((h, idx) => {
-        addHoliday(`holiday_hh_${y}_${idx}`, '🎉 ' + h.name, ymd(h.date));
+      stateHolidays(state, y).forEach((h, idx) => {
+        addHoliday(`holiday_${state}_${y}_${idx}`, '🎉 ' + h.name, ymd(h.date));
       });
     });
     // Schulferien async nachladen — Fetch pro Jahr, Cache pro Session
-    (async () => {
-      for (const y of yearsRange) {
-        const holidays = await fetchHamburgSchoolHolidays(y);
-        if (!fcInstance) return; // Kalender inzwischen verlassen
-        holidays.forEach((h, idx) => {
-          const endDate = new Date(h.end);
-          endDate.setDate(endDate.getDate() + 1); // FullCalendar end ist exklusiv
-          addHoliday(`school_hh_${y}_${idx}`, '🏫 ' + h.name, h.start, '#0ea5e9', ymd(endDate));
-        });
-      }
-    })();
+    if (cal.showSchoolHolidays !== false) {
+      (async () => {
+        for (const y of yearsRange) {
+          const holidays = await fetchStateSchoolHolidays(state, y);
+          if (!fcInstance) return; // Kalender inzwischen verlassen
+          holidays.forEach((h, idx) => {
+            const endDate = new Date(h.end);
+            endDate.setDate(endDate.getDate() + 1); // FullCalendar end ist exklusiv
+            addHoliday(`school_${state}_${y}_${idx}`, '🏫 ' + h.name, h.start, '#0ea5e9', ymd(endDate));
+          });
+        }
+      })();
+    }
   }
 
   unsubs.events = onSnapshot(collection(db, 'calendars', cal.id, 'events'), snap => {
@@ -1789,8 +1792,15 @@ function openCalendarSettingsModal(cal) {
       <div class="field field-inline">
         <label><input type="checkbox" id="cs-holidays" ${cal.showHolidays ? 'checked' : ''} /> 🎉 Deutsche Feiertage (bundesweit)</label>
       </div>
-      <div class="field field-inline">
-        <label><input type="checkbox" id="cs-hamburg" ${cal.showHamburg ? 'checked' : ''} /> 🌊 Hamburg: Reformationstag + Schulferien</label>
+      <div class="field">
+        <label>Bundesland (zusätzliche Feiertage + Ferien)</label>
+        <select id="cs-state">
+          <option value="none">— Kein Bundesland —</option>
+          ${STATES.map(s => `<option value="${s.code}" ${cal.holidayState === s.code ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field field-inline" id="cs-school-wrap" style="${cal.holidayState && cal.holidayState !== 'none' ? '' : 'display:none;'}">
+        <label><input type="checkbox" id="cs-school" ${cal.showSchoolHolidays !== false ? 'checked' : ''} /> 🏫 Schulferien mit anzeigen</label>
       </div>
       <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
         <button class="btn btn-secondary btn-small" id="export-ics-btn" style="width:100%;">📥 Als .ics exportieren</button>
@@ -1805,6 +1815,10 @@ function openCalendarSettingsModal(cal) {
   `;
   document.body.appendChild(overlay);
   document.getElementById('export-ics-btn').addEventListener('click', () => exportCalendarAsIcs(cal));
+  document.getElementById('cs-state').addEventListener('change', () => {
+    const wrap = document.getElementById('cs-school-wrap');
+    wrap.style.display = document.getElementById('cs-state').value !== 'none' ? '' : 'none';
+  });
   let selectedColor = cal.color;
   overlay.querySelectorAll('.color-swatch').forEach(sw => {
     sw.addEventListener('click', () => {
@@ -1825,7 +1839,10 @@ function openCalendarSettingsModal(cal) {
       if (hhId) payload.householdId = hhId;
       else payload.householdId = deleteField();
       payload.showHolidays = document.getElementById('cs-holidays').checked;
-      payload.showHamburg = document.getElementById('cs-hamburg').checked;
+      payload.holidayState = document.getElementById('cs-state').value || 'none';
+      payload.showSchoolHolidays = document.getElementById('cs-school').checked;
+      // Alt-Feld sauber entfernen (falls noch vorhanden)
+      payload.showHamburg = deleteField();
       await updateDoc(doc(db, 'calendars', cal.id), payload);
       // Falls Kalender-Detail gerade offen: neu öffnen damit Feiertage sofort erscheinen
       if (currentCalendar?.id === cal.id) {
@@ -3125,17 +3142,68 @@ function germanHolidays(year) {
     { date: new Date(year, 11, 26), name: '2. Weihnachtstag' }
   ];
 }
-function hamburgHolidays(year) {
-  return [
-    { date: new Date(year, 9, 31),  name: 'Reformationstag' }
-  ];
+// Bundesland-spezifische Feiertage (zusätzlich zu bundesweit)
+const STATES = [
+  { code: 'BW', name: 'Baden-Württemberg' },
+  { code: 'BY', name: 'Bayern' },
+  { code: 'BE', name: 'Berlin' },
+  { code: 'BB', name: 'Brandenburg' },
+  { code: 'HB', name: 'Bremen' },
+  { code: 'HH', name: 'Hamburg' },
+  { code: 'HE', name: 'Hessen' },
+  { code: 'MV', name: 'Mecklenburg-Vorpommern' },
+  { code: 'NI', name: 'Niedersachsen' },
+  { code: 'NW', name: 'Nordrhein-Westfalen' },
+  { code: 'RP', name: 'Rheinland-Pfalz' },
+  { code: 'SL', name: 'Saarland' },
+  { code: 'SN', name: 'Sachsen' },
+  { code: 'ST', name: 'Sachsen-Anhalt' },
+  { code: 'SH', name: 'Schleswig-Holstein' },
+  { code: 'TH', name: 'Thüringen' }
+];
+function bussUndBettag(year) {
+  // Mittwoch vor dem 23. November
+  const d = new Date(year, 10, 23);
+  while (d.getDay() !== 3) d.setDate(d.getDate() - 1);
+  return d;
+}
+function stateHolidays(state, year) {
+  const easter = easterSunday(year);
+  const fronleichnam = { date: addDays(easter, 60), name: 'Fronleichnam' };
+  const dreiKoenige   = { date: new Date(year, 0, 6),   name: 'Heilige Drei Könige' };
+  const frauentag     = { date: new Date(year, 2, 8),   name: 'Internationaler Frauentag' };
+  const mariaHimmel   = { date: new Date(year, 7, 15),  name: 'Mariä Himmelfahrt' };
+  const weltkinder    = { date: new Date(year, 8, 20),  name: 'Weltkindertag' };
+  const reformation   = { date: new Date(year, 9, 31),  name: 'Reformationstag' };
+  const allerheiligen = { date: new Date(year, 10, 1),  name: 'Allerheiligen' };
+  const bussTag       = { date: bussUndBettag(year),    name: 'Buß- und Bettag' };
+  const map = {
+    BW: [dreiKoenige, fronleichnam, allerheiligen],
+    BY: [dreiKoenige, fronleichnam, mariaHimmel, allerheiligen],
+    BE: [frauentag],
+    BB: [reformation],
+    HB: [reformation],
+    HH: [reformation],
+    HE: [fronleichnam],
+    MV: [reformation],
+    NI: [reformation],
+    NW: [fronleichnam, allerheiligen],
+    RP: [fronleichnam, allerheiligen],
+    SL: [fronleichnam, mariaHimmel, allerheiligen],
+    SN: [reformation, bussTag],
+    ST: [dreiKoenige, reformation],
+    SH: [reformation],
+    TH: [weltkinder, reformation]
+  };
+  return map[state] || [];
 }
 
-const schoolHolidayCache = new Map(); // year -> array
-async function fetchHamburgSchoolHolidays(year) {
-  if (schoolHolidayCache.has(year)) return schoolHolidayCache.get(year);
+const schoolHolidayCache = new Map(); // "state_year" -> array
+async function fetchStateSchoolHolidays(state, year) {
+  const key = `${state}_${year}`;
+  if (schoolHolidayCache.has(key)) return schoolHolidayCache.get(key);
   try {
-    const url = `https://openholidaysapi.org/SchoolHolidays?countryIsoCode=DE&languageIsoCode=DE&validFrom=${year}-01-01&validTo=${year}-12-31&subdivisionCode=DE-HH`;
+    const url = `https://openholidaysapi.org/SchoolHolidays?countryIsoCode=DE&languageIsoCode=DE&validFrom=${year}-01-01&validTo=${year}-12-31&subdivisionCode=DE-${state}`;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error();
     const data = await resp.json();
@@ -3144,7 +3212,7 @@ async function fetchHamburgSchoolHolidays(year) {
       end: h.endDate,
       name: (h.name?.find(n => n.language === 'DE')?.text) || 'Ferien'
     }));
-    schoolHolidayCache.set(year, list);
+    schoolHolidayCache.set(key, list);
     return list;
   } catch {
     return [];
