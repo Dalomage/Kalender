@@ -1626,30 +1626,53 @@ function openCalendar(cal) {
   });
   fcInstance.render();
 
-  // Deutsche Feiertage nur wenn im Kalender aktiviert
+  // Feiertage und Ferien nur wenn im Kalender aktiviert
+  const nowYear = new Date().getFullYear();
+  const yearsRange = [];
+  for (let y = nowYear - 2; y <= nowYear + 5; y++) yearsRange.push(y);
+  const addHoliday = (id, title, dateStr, color = '#a855f7', endDateStr = null) => {
+    fcInstance.addEvent({
+      id,
+      title,
+      start: dateStr,
+      end: endDateStr,
+      allDay: true,
+      backgroundColor: color,
+      borderColor: color,
+      textColor: '#ffffff',
+      classNames: ['fc-holiday'],
+      editable: false,
+      startEditable: false,
+      durationEditable: false,
+      extendedProps: { _holiday: true }
+    });
+  };
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   if (cal.showHolidays) {
-    const nowYear = new Date().getFullYear();
-    for (let y = nowYear - 2; y <= nowYear + 5; y++) {
+    yearsRange.forEach(y => {
       germanHolidays(y).forEach((h, idx) => {
-        const y2 = h.date.getFullYear();
-        const m2 = String(h.date.getMonth() + 1).padStart(2, '0');
-        const d2 = String(h.date.getDate()).padStart(2, '0');
-        fcInstance.addEvent({
-          id: `holiday_${y}_${idx}`,
-          title: '🎉 ' + h.name,
-          start: `${y2}-${m2}-${d2}`,
-          allDay: true,
-          backgroundColor: '#a855f7',
-          borderColor: '#a855f7',
-          textColor: '#ffffff',
-          classNames: ['fc-holiday'],
-          editable: false,
-          startEditable: false,
-          durationEditable: false,
-          extendedProps: { _holiday: true }
-        });
+        addHoliday(`holiday_de_${y}_${idx}`, '🎉 ' + h.name, ymd(h.date));
       });
-    }
+    });
+  }
+  if (cal.showHamburg) {
+    yearsRange.forEach(y => {
+      hamburgHolidays(y).forEach((h, idx) => {
+        addHoliday(`holiday_hh_${y}_${idx}`, '🎉 ' + h.name, ymd(h.date));
+      });
+    });
+    // Schulferien async nachladen — Fetch pro Jahr, Cache pro Session
+    (async () => {
+      for (const y of yearsRange) {
+        const holidays = await fetchHamburgSchoolHolidays(y);
+        if (!fcInstance) return; // Kalender inzwischen verlassen
+        holidays.forEach((h, idx) => {
+          const endDate = new Date(h.end);
+          endDate.setDate(endDate.getDate() + 1); // FullCalendar end ist exklusiv
+          addHoliday(`school_hh_${y}_${idx}`, '🏫 ' + h.name, h.start, '#0ea5e9', ymd(endDate));
+        });
+      }
+    })();
   }
 
   unsubs.events = onSnapshot(collection(db, 'calendars', cal.id, 'events'), snap => {
@@ -1764,7 +1787,10 @@ function openCalendarSettingsModal(cal) {
         </div>
       </div>
       <div class="field field-inline">
-        <label><input type="checkbox" id="cs-holidays" ${cal.showHolidays ? 'checked' : ''} /> 🎉 Deutsche Feiertage in diesem Kalender anzeigen</label>
+        <label><input type="checkbox" id="cs-holidays" ${cal.showHolidays ? 'checked' : ''} /> 🎉 Deutsche Feiertage (bundesweit)</label>
+      </div>
+      <div class="field field-inline">
+        <label><input type="checkbox" id="cs-hamburg" ${cal.showHamburg ? 'checked' : ''} /> 🌊 Hamburg: Reformationstag + Schulferien</label>
       </div>
       <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
         <button class="btn btn-secondary btn-small" id="export-ics-btn" style="width:100%;">📥 Als .ics exportieren</button>
@@ -1799,6 +1825,7 @@ function openCalendarSettingsModal(cal) {
       if (hhId) payload.householdId = hhId;
       else payload.householdId = deleteField();
       payload.showHolidays = document.getElementById('cs-holidays').checked;
+      payload.showHamburg = document.getElementById('cs-hamburg').checked;
       await updateDoc(doc(db, 'calendars', cal.id), payload);
       // Falls Kalender-Detail gerade offen: neu öffnen damit Feiertage sofort erscheinen
       if (currentCalendar?.id === cal.id) {
@@ -3097,6 +3124,31 @@ function germanHolidays(year) {
     { date: new Date(year, 11, 25), name: '1. Weihnachtstag' },
     { date: new Date(year, 11, 26), name: '2. Weihnachtstag' }
   ];
+}
+function hamburgHolidays(year) {
+  return [
+    { date: new Date(year, 9, 31),  name: 'Reformationstag' }
+  ];
+}
+
+const schoolHolidayCache = new Map(); // year -> array
+async function fetchHamburgSchoolHolidays(year) {
+  if (schoolHolidayCache.has(year)) return schoolHolidayCache.get(year);
+  try {
+    const url = `https://openholidaysapi.org/SchoolHolidays?countryIsoCode=DE&languageIsoCode=DE&validFrom=${year}-01-01&validTo=${year}-12-31&subdivisionCode=DE-HH`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error();
+    const data = await resp.json();
+    const list = (data || []).map(h => ({
+      start: h.startDate,
+      end: h.endDate,
+      name: (h.name?.find(n => n.language === 'DE')?.text) || 'Ferien'
+    }));
+    schoolHolidayCache.set(year, list);
+    return list;
+  } catch {
+    return [];
+  }
 }
 
 // ── Relative Zeit ─────────────────────────────────────────────
