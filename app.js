@@ -1653,7 +1653,10 @@ function openCalendar(cal) {
   }
 
   unsubs.events = onSnapshot(collection(db, 'calendars', cal.id, 'events'), snap => {
-    fcInstance.removeAllEvents();
+    // Nur die eigenen Events entfernen — Feiertage und Overlays behalten
+    fcInstance.getEvents().forEach(ev => {
+      if (!ev.extendedProps._holiday && !ev.extendedProps._overlayCalId) ev.remove();
+    });
     snap.forEach(d => {
       const data = d.data();
       const occurrences = expandRecurrence(data);
