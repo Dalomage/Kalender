@@ -2124,6 +2124,13 @@ function openEventModal(cal, existing, canEdit = true) {
           <option value="1440">1 Tag vorher</option>
         </select>
       </div>
+      ${isNew && canEdit ? `
+        <div class="field" id="ev-copy-field">
+          <label>Auch in andere Kalender kopieren (optional)</label>
+          <div id="ev-copy-list" class="copy-cal-list"></div>
+          <div class="field-hint">Kopien werden bei späteren Änderungen nicht mit-synchronisiert.</div>
+        </div>
+      ` : ''}
       <div class="field">
         <label>Notiz (optional)</label>
         <textarea id="ev-note" rows="2" ${canEdit ? '' : 'disabled'}>${escapeHtml(existing?.note || '')}</textarea>
@@ -2157,6 +2164,27 @@ function openEventModal(cal, existing, canEdit = true) {
       if (opt) opt.textContent = nameFor(uid);
     });
   });
+
+  // "Auch in andere Kalender kopieren"-Liste befüllen (nur bei Neu-Anlage)
+  const copyList = $('ev-copy-list');
+  if (copyList) {
+    const others = calendars.filter(c => c.id !== cal.id);
+    if (!others.length) {
+      copyList.innerHTML = `<div class="field-hint">Du hast keine weiteren Kalender.</div>`;
+    } else {
+      copyList.innerHTML = others.map(c => {
+        const hh = c.householdId ? households.find(h => h.id === c.householdId) : null;
+        return `
+          <label class="copy-cal-item">
+            <input type="checkbox" data-copy-cal="${c.id}" />
+            <span class="color-dot" style="background:${escapeHtml(c.color || '#14b8a6')};"></span>
+            ${escapeHtml(c.name)}
+            ${hh ? `<span class="copy-cal-hh">🏠 ${escapeHtml(hh.name)}</span>` : ''}
+          </label>
+        `;
+      }).join('');
+    }
+  }
 
   const allDayCheckbox = $('ev-allday');
   allDayCheckbox?.addEventListener('change', () => {
@@ -2213,6 +2241,15 @@ function openEventModal(cal, existing, canEdit = true) {
           payload.createdAt = serverTimestamp();
           payload.createdBy = currentUser.uid;
           await addDoc(collection(db, 'calendars', cal.id, 'events'), payload);
+          // Kopien in weitere ausgewählte Kalender
+          const copyTargets = Array.from(document.querySelectorAll('[data-copy-cal]:checked')).map(cb => cb.dataset.copyCal);
+          if (copyTargets.length) {
+            await Promise.all(copyTargets.map(async calId => {
+              try {
+                await addDoc(collection(db, 'calendars', calId, 'events'), { ...payload });
+              } catch (err) { console.warn('Kopie fehlgeschlagen für', calId, err); }
+            }));
+          }
         } else {
           await updateDoc(doc(db, 'calendars', cal.id, 'events', existing.id), payload);
         }
