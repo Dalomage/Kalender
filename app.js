@@ -109,6 +109,146 @@ function stopAll() {
   currentList = null;
 }
 
+// ── Wetter (Open-Meteo, kein Key) ─────────────────────────────
+const WEATHER_ICONS = {
+  0: '☀️', 1: '🌤️', 2: '⛅', 3: '☁️',
+  45: '🌫️', 48: '🌫️',
+  51: '🌦️', 53: '🌦️', 55: '🌦️',
+  56: '🌧️', 57: '🌧️',
+  61: '🌧️', 63: '🌧️', 65: '🌧️',
+  66: '🌧️', 67: '🌧️',
+  71: '🌨️', 73: '🌨️', 75: '🌨️', 77: '🌨️',
+  80: '🌦️', 81: '🌦️', 82: '⛈️',
+  85: '🌨️', 86: '🌨️',
+  95: '⛈️', 96: '⛈️', 99: '⛈️'
+};
+function weatherIcon(code) { return WEATHER_ICONS[code] || '❓'; }
+
+let weatherCache = null;
+async function fetchWeather(lat, lon) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=3`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('Wetter-API antwortet nicht');
+  return resp.json();
+}
+
+async function updateWeatherWidget() {
+  const wEl = document.getElementById('dash-weather');
+  if (!wEl) return;
+  if (!myProfile?.weatherLat) {
+    wEl.innerHTML = `<button class="btn btn-secondary btn-small" id="weather-set-btn">📍 Ort für Wetter setzen</button>`;
+    document.getElementById('weather-set-btn')?.addEventListener('click', openWeatherLocationModal);
+    return;
+  }
+  // 15-Minuten-Cache
+  const now = Date.now();
+  const sameLocation = weatherCache && weatherCache.lat === myProfile.weatherLat && weatherCache.lon === myProfile.weatherLon;
+  if (sameLocation && now - weatherCache.time < 15 * 60 * 1000) {
+    renderWeather(wEl, weatherCache.data);
+    return;
+  }
+  try {
+    const data = await fetchWeather(myProfile.weatherLat, myProfile.weatherLon);
+    weatherCache = { lat: myProfile.weatherLat, lon: myProfile.weatherLon, time: now, data };
+    renderWeather(wEl, data);
+  } catch (err) {
+    wEl.innerHTML = `<div class="weather-error">Wetter nicht verfügbar</div>`;
+  }
+}
+
+function renderWeather(wEl, data) {
+  const currentTemp = Math.round(data.current?.temperature_2m ?? 0);
+  const currentIcon = weatherIcon(data.current?.weather_code);
+  const city = myProfile?.weatherCity || '';
+  const days = (data.daily?.time || []).map((_, i) => ({
+    icon: weatherIcon(data.daily.weather_code[i]),
+    min: Math.round(data.daily.temperature_2m_min[i]),
+    max: Math.round(data.daily.temperature_2m_max[i]),
+    label: i === 0 ? 'Heute' : (i === 1 ? 'Morgen' : new Date(data.daily.time[i]).toLocaleDateString('de-DE', { weekday: 'short' }))
+  }));
+  wEl.innerHTML = `
+    <button class="weather-widget" id="weather-widget-btn" title="Ort ändern">
+      <div class="weather-now">
+        <div class="weather-icon">${currentIcon}</div>
+        <div class="weather-temp">${currentTemp}°</div>
+      </div>
+      <div class="weather-city">${escapeHtml(city)}</div>
+      <div class="weather-forecast">
+        ${days.map(d => `
+          <div class="weather-day">
+            <div class="wd-label">${escapeHtml(d.label)}</div>
+            <div class="wd-icon">${d.icon}</div>
+            <div class="wd-temps">${d.max}° / ${d.min}°</div>
+          </div>
+        `).join('')}
+      </div>
+    </button>
+  `;
+  document.getElementById('weather-widget-btn')?.addEventListener('click', openWeatherLocationModal);
+}
+
+function openWeatherLocationModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Wetter-Ort setzen</h2>
+      <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Gib deine Stadt ein (z.B. „Hamburg" oder „Berlin").</p>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Stadt</label>
+        <input type="text" id="w-city" value="${escapeHtml(myProfile?.weatherCity || '')}" placeholder="Hamburg" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        ${myProfile?.weatherLat ? '<button class="btn btn-danger" id="clear-btn">Entfernen</button>' : ''}
+        <button class="btn" id="save-btn">Speichern</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('w-city').focus();
+  document.getElementById('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('clear-btn')?.addEventListener('click', async () => {
+    try {
+      await setDoc(doc(db, 'users', currentUser.uid), {
+        weatherCity: deleteField(), weatherLat: deleteField(), weatherLon: deleteField()
+      }, { merge: true });
+      myProfile.weatherCity = null; myProfile.weatherLat = null; myProfile.weatherLon = null;
+      weatherCache = null;
+      overlay.remove();
+      updateWeatherWidget();
+    } catch (err) {
+      document.getElementById('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+    }
+  });
+  document.getElementById('save-btn').addEventListener('click', async () => {
+    const city = document.getElementById('w-city').value.trim();
+    if (!city) return;
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    try {
+      const geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=de`);
+      const geoData = await geo.json();
+      const hit = geoData?.results?.[0];
+      if (!hit) throw new Error('Ort nicht gefunden.');
+      await setDoc(doc(db, 'users', currentUser.uid), {
+        weatherCity: hit.name, weatherLat: hit.latitude, weatherLon: hit.longitude
+      }, { merge: true });
+      myProfile.weatherCity = hit.name;
+      myProfile.weatherLat = hit.latitude;
+      myProfile.weatherLon = hit.longitude;
+      weatherCache = null;
+      overlay.remove();
+      updateWeatherWidget();
+    } catch (err) {
+      document.getElementById('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+    }
+  });
+}
+
 // ── Nutzerprofile ─────────────────────────────────────────────
 async function loadMyProfile() {
   try {
@@ -116,7 +256,10 @@ async function loadMyProfile() {
     const data = snap.exists() ? snap.data() : {};
     myProfile = {
       name: data.name || currentUser.email.split('@')[0],
-      email: currentUser.email
+      email: currentUser.email,
+      weatherCity: data.weatherCity || null,
+      weatherLat: data.weatherLat || null,
+      weatherLon: data.weatherLon || null
     };
   } catch {
     myProfile = { name: currentUser.email.split('@')[0], email: currentUser.email };
@@ -386,6 +529,7 @@ function goHome() {
   if (unsubs.events) { unsubs.events(); unsubs.events = null; }
   if (unsubs.items) { unsubs.items(); unsubs.items = null; }
   if (fcInstance) { fcInstance.destroy(); fcInstance = null; }
+  overlayCalendars.clear();
   renderHome();
 }
 
@@ -601,9 +745,12 @@ async function renderDashboard(content, scope = null) {
       ? `<div id="dash-empty-hint" class="empty" style="display:none;padding:1.5rem;text-align:center;"><p style="margin-bottom:0.5rem;">Du hast noch keine <b>persönlichen</b> Kalender, Listen oder Notizen.</p><p style="color:var(--muted);font-size:0.85rem;">Alle Inhalte deiner Haushalte findest du oben unter „Haushalte".</p></div>`
       : '';
     content.innerHTML = `
-      <div class="dash-clock">
-        <div class="dash-clock-time" id="dash-clock-time">--:--</div>
-        <div class="dash-clock-date" id="dash-clock-date">…</div>
+      <div class="dash-top">
+        <div class="dash-clock">
+          <div class="dash-clock-time" id="dash-clock-time">--:--</div>
+          <div class="dash-clock-date" id="dash-clock-date">…</div>
+        </div>
+        <div id="dash-weather" class="dash-weather-slot"></div>
       </div>
 
       ${emptyHint}
@@ -627,6 +774,7 @@ async function renderDashboard(content, scope = null) {
     updateDashboardClock();
     if (dashboardClockTimer) clearInterval(dashboardClockTimer);
     dashboardClockTimer = setInterval(updateDashboardClock, 30_000);
+    updateWeatherWidget();
   }
 
   // Empty-Hinweis (nur Home-Dashboard) an/aus
@@ -677,8 +825,12 @@ async function renderDashboard(content, scope = null) {
       snap.forEach(d => {
         const data = d.data();
         expandRecurrence(data).forEach(occ => {
-          if (occ.start >= now && occ.start <= in7Days) {
-            all.push({ id: d.id, calendar: c, title: data.title || '', allDay: !!data.allDay, start: occ.start, note: data.note, location: data.location, assignee: data.assignee, raw: data });
+          const end = occ.end || occ.start;
+          // Termine aufnehmen wenn (a) noch bevor sie enden UND (b) im 7-Tage-Fenster starten
+          const isLive = occ.start <= now && end >= now;
+          const isUpcoming = occ.start >= now && occ.start <= in7Days;
+          if (isLive || isUpcoming) {
+            all.push({ id: d.id, calendar: c, title: data.title || '', allDay: !!data.allDay, start: occ.start, end, live: isLive, note: data.note, location: data.location, assignee: data.assignee, raw: data });
           }
         });
       });
@@ -693,7 +845,11 @@ async function renderDashboard(content, scope = null) {
   if (myToken !== dashboardRenderToken) return;
   const evEl = $('dash-events');
   if (!evEl) return;
-  all.sort((a, b) => a.start - b.start);
+  // Live-Termine zuerst, sonst chronologisch
+  all.sort((a, b) => {
+    if (a.live !== b.live) return a.live ? -1 : 1;
+    return a.start - b.start;
+  });
   if (!all.length) {
     evEl.innerHTML = `<div class="empty" style="padding:1rem;"><p>Keine Termine in den nächsten 7 Tagen.</p></div>`;
     return;
@@ -702,10 +858,12 @@ async function renderDashboard(content, scope = null) {
   evEl.innerHTML = `<div class="event-list">${all.slice(0, 30).map(e => {
     const assigneeName = e.assignee ? nameFor(e.assignee) : '';
     return `
-    <div class="event-row" data-cal="${e.calendar.id}" data-date="${e.start.toISOString()}">
+    <div class="event-row ${e.live ? 'is-live' : ''}" data-cal="${e.calendar.id}" data-date="${e.start.toISOString()}">
       <div class="event-date">
-        <div class="event-day">${e.start.getDate()}</div>
-        <div class="event-month">${e.start.toLocaleDateString('de-DE', { month: 'short' })}</div>
+        ${e.live ? '<div class="live-badge">JETZT</div>' : `
+          <div class="event-day">${e.start.getDate()}</div>
+          <div class="event-month">${e.start.toLocaleDateString('de-DE', { month: 'short' })}</div>
+        `}
       </div>
       <div class="event-body">
         <div class="event-title">
@@ -713,7 +871,9 @@ async function renderDashboard(content, scope = null) {
           ${e.raw?.category ? categoryIcon(e.raw.category) + ' ' : ''}${escapeHtml(e.title)}
         </div>
         <div class="event-meta">
-          ${e.allDay ? 'Ganztägig' : e.start.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr'}
+          ${e.live
+            ? 'Läuft bis ' + (e.end ? e.end.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr' : '')
+            : (e.allDay ? 'Ganztägig' : e.start.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr')}
           · ${escapeHtml(e.calendar.name)}
           ${e.location ? ' · 📍 ' + escapeHtml(e.location) : ''}
           ${assigneeName ? ' · 👤 ' + escapeHtml(assigneeName) : ''}
@@ -1194,6 +1354,7 @@ async function openInviteModal(hh) {
           try {
             await navigator.clipboard.writeText(btn.dataset.copy);
             btn.textContent = '✓ Kopiert';
+            showToast('In Zwischenablage kopiert', { type: 'success' });
             setTimeout(() => { btn.textContent = 'Kopieren'; }, 1500);
           } catch {
             prompt('Code manuell kopieren:', btn.dataset.copy);
@@ -1372,6 +1533,9 @@ function openCalendar(cal) {
   const hh = cal.householdId ? households.find(h => h.id === cal.householdId) : null;
   const canEdit = canEditCalendar(cal, hh);
 
+  // Weitere Kalender die man einblenden könnte (alle sichtbaren außer diesem)
+  const otherCals = calendars.filter(c => c.id !== cal.id);
+
   appEl.innerHTML = `
     ${topbarHtml(`
       <button class="logout-btn" id="back-btn">← Zurück</button>
@@ -1382,6 +1546,18 @@ function openCalendar(cal) {
       </span>
     `)}
     <main class="content content-wide">
+      ${otherCals.length ? `
+        <div class="cal-filter-bar">
+          <span class="cal-filter-label">Zusätzlich anzeigen:</span>
+          ${otherCals.map(c => `
+            <label class="cal-filter-chip">
+              <input type="checkbox" data-overlay-cal="${c.id}" />
+              <span class="color-dot" style="background:${escapeHtml(c.color)};"></span>
+              ${escapeHtml(c.name)}
+            </label>
+          `).join('')}
+        </div>
+      ` : ''}
       <div id="fc-container"></div>
       ${cal.owner === currentUser.uid ? `
         <div style="margin-top:1rem;text-align:right;">
@@ -1395,6 +1571,11 @@ function openCalendar(cal) {
   if (cal.owner === currentUser.uid) {
     $('cal-settings-btn').addEventListener('click', () => openCalendarSettingsModal(cal));
   }
+
+  // Zusätzliche Kalender ein-/ausblenden
+  appEl.querySelectorAll('[data-overlay-cal]').forEach(cb => {
+    cb.addEventListener('change', () => toggleOverlayCalendar(cb.dataset.overlayCal, cb.checked));
+  });
 
   const container = $('fc-container');
   fcInstance = new FullCalendar.Calendar(container, {
@@ -1447,6 +1628,46 @@ function openCalendar(cal) {
       });
     });
   }, err => console.error('events sub failed:', err));
+}
+
+const overlayCalendars = new Map(); // calId -> array of FC event ids
+
+async function toggleOverlayCalendar(calId, enabled) {
+  if (!fcInstance) return;
+  const existing = overlayCalendars.get(calId);
+  if (!enabled) {
+    if (existing) existing.forEach(id => fcInstance.getEventById(id)?.remove());
+    overlayCalendars.delete(calId);
+    return;
+  }
+  const overlayCal = calendars.find(c => c.id === calId);
+  if (!overlayCal) return;
+  try {
+    const snap = await getDocs(collection(db, 'calendars', calId, 'events'));
+    const ids = [];
+    snap.forEach(d => {
+      const data = d.data();
+      const occurrences = expandRecurrence(data);
+      occurrences.forEach((occ, idx) => {
+        const iconPrefix = categoryIcon(data.category);
+        const evId = `overlay_${calId}_${d.id}__${idx}`;
+        fcInstance.addEvent({
+          id: evId,
+          title: iconPrefix ? `${iconPrefix} ${data.title}` : data.title,
+          start: occ.start,
+          end: occ.end,
+          allDay: !!data.allDay,
+          color: overlayCal.color,
+          editable: false,
+          extendedProps: { _doc: { id: d.id, ...data }, _overlayCalId: calId }
+        });
+        ids.push(evId);
+      });
+    });
+    overlayCalendars.set(calId, ids);
+  } catch (err) {
+    showToast('Konnte Kalender nicht laden: ' + err.message, { type: 'error' });
+  }
 }
 
 function updateCalendarHeader(cal) {
@@ -1807,13 +2028,23 @@ async function toggleItem(list, itemId, done) {
 async function deleteItem(list, itemId) {
   const item = listItems.find(i => i.id === itemId);
   const wasOpen = item && !item.done;
+  const backup = item ? { ...item } : null;
+  if (backup) delete backup.id;
   try {
     await deleteDoc(doc(db, 'lists', list.id, 'items', itemId));
     if (wasOpen) {
       await updateDoc(doc(db, 'lists', list.id), { openCount: increment(-1) });
     }
+    if (backup) {
+      showToast(`„${backup.text}" gelöscht`, {
+        undo: async () => {
+          await setDoc(doc(db, 'lists', list.id, 'items', itemId), backup);
+          if (wasOpen) await updateDoc(doc(db, 'lists', list.id), { openCount: increment(1) });
+        }
+      });
+    }
   } catch (err) {
-    alert('Fehler: ' + err.message);
+    showToast('Fehler: ' + err.message, { type: 'error' });
   }
 }
 
@@ -2231,10 +2462,16 @@ function openNoteModal(existing, preselectedHousehold) {
   const delBtn = $('delete-btn');
   if (delBtn) {
     delBtn.addEventListener('click', async () => {
-      if (!confirm('Diese Notiz wirklich löschen?')) return;
+      const backup = { ...existing };
+      delete backup.id;
       try {
         await deleteDoc(doc(db, 'notes', existing.id));
         overlay.remove();
+        showToast(`Notiz gelöscht`, {
+          undo: async () => {
+            await setDoc(doc(db, 'notes', existing.id), backup);
+          }
+        });
       } catch (err) {
         $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
       }
@@ -2449,11 +2686,18 @@ function openEventModal(cal, existing, canEdit = true) {
     const delBtn = $('delete-btn');
     if (delBtn) {
       delBtn.addEventListener('click', async () => {
-        if (!confirm('Diesen Termin wirklich löschen?')) return;
         delBtn.disabled = true;
+        // Daten für Undo cachen (ohne createdAt-serverTimestamp — wird bei restore neu)
+        const backup = { ...existing };
+        delete backup.id;
         try {
           await deleteDoc(doc(db, 'calendars', cal.id, 'events', existing.id));
           overlay.remove();
+          showToast(`Termin „${existing.title || 'Ohne Titel'}" gelöscht`, {
+            undo: async () => {
+              await setDoc(doc(db, 'calendars', cal.id, 'events', existing.id), backup);
+            }
+          });
         } catch (err) {
           showEvMsg(err.message);
           delBtn.disabled = false;
@@ -2620,6 +2864,48 @@ function toLocalInput(date, allDay) {
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ── Toast-System (Feedback + Undo) ────────────────────────────
+function ensureToastContainer() {
+  let c = document.getElementById('toast-container');
+  if (!c) {
+    c = document.createElement('div');
+    c.id = 'toast-container';
+    document.body.appendChild(c);
+  }
+  return c;
+}
+function showToast(message, opts = {}) {
+  const c = ensureToastContainer();
+  const el = document.createElement('div');
+  el.className = 'toast ' + (opts.type ? 'toast-' + opts.type : '');
+  const undoBtn = opts.undo
+    ? `<button class="toast-undo">Rückgängig</button>`
+    : '';
+  el.innerHTML = `<span class="toast-msg">${escapeHtml(message)}</span>${undoBtn}`;
+  c.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 250);
+  };
+  if (opts.undo) {
+    el.querySelector('.toast-undo').addEventListener('click', async () => {
+      try {
+        await opts.undo();
+        showToast('Wiederhergestellt', { type: 'success' });
+      } catch (e) {
+        showToast('Rückgängig fehlgeschlagen: ' + e.message, { type: 'error' });
+      }
+      dismiss();
+    });
+  }
+  const dur = opts.duration ?? (opts.undo ? 6000 : 2500);
+  setTimeout(dismiss, dur);
 }
 
 // ── Service Worker + Auto-Update ──────────────────────────────
