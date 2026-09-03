@@ -459,6 +459,22 @@ function openProfileModal() {
 // ── Home: Haushalte + persönliche Kalender ────────────────────
 const CALENDAR_COLORS = ['#14b8a6', '#3b82f6', '#a855f7', '#ec4899', '#f59e0b', '#ef4444', '#22c55e', '#0ea5e9'];
 
+const EVENT_CATEGORIES = [
+  { id: 'none',    label: 'Keine',      icon: '' },
+  { id: 'work',    label: 'Arbeit',     icon: '💼' },
+  { id: 'family',  label: 'Familie',    icon: '👨‍👩‍👧' },
+  { id: 'sport',   label: 'Sport',      icon: '⚽' },
+  { id: 'medical', label: 'Arzt',       icon: '🚑' },
+  { id: 'leisure', label: 'Freizeit',   icon: '🎉' },
+  { id: 'travel',  label: 'Reise',      icon: '🧳' },
+  { id: 'food',    label: 'Essen',      icon: '🍽️' },
+  { id: 'birthday',label: 'Geburtstag', icon: '🎂' },
+  { id: 'other',   label: 'Sonstiges',  icon: '📌' }
+];
+function categoryIcon(id) {
+  return EVENT_CATEGORIES.find(c => c.id === id)?.icon || '';
+}
+
 function renderHome() {
   appEl.innerHTML = `
     ${topbarHtml('', true)}
@@ -597,11 +613,16 @@ async function renderDashboard(content, scope = null) {
         <div id="dash-fav-notes"></div>
       </div>
 
-      <div class="section-title" style="margin-top:1.5rem;"><span>Kommende Termine (7 Tage)</span></div>
-      <div id="dash-events"></div>
-
-      <div class="section-title" style="margin-top:2rem;"><span>Offene Listen</span></div>
-      <div id="dash-lists"></div>
+      <div class="dash-grid">
+        <section class="dash-col dash-col-events">
+          <div class="section-title"><span>Kommende Termine (7 Tage)</span></div>
+          <div id="dash-events"></div>
+        </section>
+        <section class="dash-col dash-col-lists">
+          <div class="section-title"><span>Offene Listen</span></div>
+          <div id="dash-lists"></div>
+        </section>
+      </div>
     `;
     updateDashboardClock();
     if (dashboardClockTimer) clearInterval(dashboardClockTimer);
@@ -689,7 +710,7 @@ async function renderDashboard(content, scope = null) {
       <div class="event-body">
         <div class="event-title">
           <span class="color-dot" style="background:${escapeHtml(e.calendar.color)};"></span>
-          ${escapeHtml(e.title)}
+          ${e.raw?.category ? categoryIcon(e.raw.category) + ' ' : ''}${escapeHtml(e.title)}
         </div>
         <div class="event-meta">
           ${e.allDay ? 'Ganztägig' : e.start.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr'}
@@ -805,15 +826,24 @@ function renderListCards(el, ls, emptyText) {
   }
 }
 
+let sortableCals = null;
 function renderPersonalCals(cals) {
   const el = $('personal-cals');
   if (!el) return;
+  if (sortableCals) { try { sortableCals.destroy(); } catch {} sortableCals = null; }
   if (!cals.length) {
     el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>Keine persönlichen Kalender. Kalender innerhalb eines Haushalts findest du dort.</p></div>`;
     return;
   }
-  el.innerHTML = `<div class="calendar-grid">${cals.map(c => `
+  const sorted = [...cals].sort((a, b) => {
+    const ao = a.order ?? 999999;
+    const bo = b.order ?? 999999;
+    if (ao !== bo) return ao - bo;
+    return (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0);
+  });
+  el.innerHTML = `<div class="calendar-grid sortable-cal-grid">${sorted.map(c => `
     <div class="calendar-card" data-cal="${c.id}">
+      <span class="card-drag-handle" title="Ziehen zum Sortieren">⋮⋮</span>
       <div class="cal-name">
         <span class="color-dot" style="background:${escapeHtml(c.color || '#14b8a6')};"></span>
         ${escapeHtml(c.name)}
@@ -822,11 +852,13 @@ function renderPersonalCals(cals) {
     </div>
   `).join('')}</div>`;
   el.querySelectorAll('[data-cal]').forEach(card => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('.card-drag-handle')) return;
       const cal = calendars.find(c => c.id === card.dataset.cal);
       if (cal) openCalendar(cal);
     });
   });
+  wireCalendarSortable(el.querySelector('.sortable-cal-grid'), s => sortableCals = s);
 }
 
 // ── Household-Detail ──────────────────────────────────────────
@@ -1001,14 +1033,24 @@ async function confirmDeleteHousehold(hh) {
   }
 }
 
+let sortableHhCals = null;
 function renderHhCals(cals) {
   const el = $('hh-cals');
+  if (!el) return;
+  if (sortableHhCals) { try { sortableHhCals.destroy(); } catch {} sortableHhCals = null; }
   if (!cals.length) {
     el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>Noch kein Kalender in diesem Haushalt.</p></div>`;
     return;
   }
-  el.innerHTML = `<div class="calendar-grid">${cals.map(c => `
+  const sorted = [...cals].sort((a, b) => {
+    const ao = a.order ?? 999999;
+    const bo = b.order ?? 999999;
+    if (ao !== bo) return ao - bo;
+    return (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0);
+  });
+  el.innerHTML = `<div class="calendar-grid sortable-cal-grid">${sorted.map(c => `
     <div class="calendar-card" data-cal="${c.id}">
+      <span class="card-drag-handle" title="Ziehen zum Sortieren">⋮⋮</span>
       <div class="cal-name">
         <span class="color-dot" style="background:${escapeHtml(c.color || '#14b8a6')};"></span>
         ${escapeHtml(c.name)}
@@ -1017,11 +1059,36 @@ function renderHhCals(cals) {
     </div>
   `).join('')}</div>`;
   el.querySelectorAll('[data-cal]').forEach(card => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('.card-drag-handle')) return;
       const cal = calendars.find(c => c.id === card.dataset.cal);
       if (cal) openCalendar(cal);
     });
   });
+  wireCalendarSortable(el.querySelector('.sortable-cal-grid'), s => sortableHhCals = s);
+}
+
+function wireCalendarSortable(grid, setter) {
+  if (!grid || typeof Sortable === 'undefined') return;
+  const s = Sortable.create(grid, {
+    handle: '.card-drag-handle',
+    animation: 150,
+    ghostClass: 'sortable-ghost',
+    dragClass: 'sortable-drag',
+    onEnd: async () => {
+      const ids = Array.from(grid.querySelectorAll('[data-cal]')).map(el => el.dataset.cal);
+      try {
+        const batch = writeBatch(db);
+        ids.forEach((id, idx) => {
+          batch.update(doc(db, 'calendars', id), { order: idx + 1 });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.error('calendar reorder failed:', err);
+      }
+    }
+  });
+  setter(s);
 }
 
 // ── Neuer Haushalt ────────────────────────────────────────────
@@ -1367,9 +1434,10 @@ function openCalendar(cal) {
       const data = d.data();
       const occurrences = expandRecurrence(data);
       occurrences.forEach((occ, idx) => {
+        const iconPrefix = categoryIcon(data.category);
         fcInstance.addEvent({
           id: `${d.id}__${idx}`,
-          title: data.title,
+          title: iconPrefix ? `${iconPrefix} ${data.title}` : data.title,
           start: occ.start,
           end: occ.end,
           allDay: !!data.allDay,
@@ -2203,6 +2271,12 @@ function openEventModal(cal, existing, canEdit = true) {
         <input type="${allDay ? 'date' : 'datetime-local'}" id="ev-end" value="${endDefault}" ${canEdit ? '' : 'disabled'} />
       </div>
       <div class="field">
+        <label>Kategorie</label>
+        <select id="ev-category" ${canEdit ? '' : 'disabled'}>
+          ${EVENT_CATEGORIES.map(c => `<option value="${c.id}">${c.icon ? c.icon + ' ' : ''}${escapeHtml(c.label)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
         <label>Ort (optional)</label>
         <input type="text" id="ev-location" value="${escapeHtml(existing?.location || '')}" ${canEdit ? '' : 'disabled'} placeholder="z.B. Zuhause, Zahnarzt, ..." />
       </div>
@@ -2255,6 +2329,7 @@ function openEventModal(cal, existing, canEdit = true) {
   if (canEdit) $('ev-title').focus();
   $('ev-recurrence').value = existing?.recurrence || 'none';
   $('ev-reminder').value = String(existing?.reminderMinutes || 0);
+  $('ev-category').value = existing?.category || 'none';
 
   // Assignee-Dropdown mit Mitgliedern befüllen (Haushalt, sonst nur ich)
   const assigneeSel = $('ev-assignee');
@@ -2327,6 +2402,7 @@ function openEventModal(cal, existing, canEdit = true) {
       const reminderMinutes = parseInt($('ev-reminder').value, 10) || 0;
       const location = $('ev-location').value.trim();
       const assignee = $('ev-assignee').value || null;
+      const category = $('ev-category').value || 'none';
 
       // Notification-Permission einholen, wenn Reminder gewünscht
       if (reminderMinutes > 0 && 'Notification' in window && Notification.permission === 'default') {
@@ -2342,6 +2418,7 @@ function openEventModal(cal, existing, canEdit = true) {
           note,
           location,
           assignee,
+          category,
           recurrence: $('ev-recurrence').value || 'none',
           reminderMinutes,
           updatedAt: serverTimestamp()
