@@ -613,16 +613,26 @@ function renderHouseholdCards() {
   });
 }
 
+let sortableLists = null;
 function renderListCards(el, ls, emptyText) {
   if (!el) return;
+  if (sortableLists) { try { sortableLists.destroy(); } catch {} sortableLists = null; }
   if (!ls.length) {
     el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>${escapeHtml(emptyText)}</p></div>`;
     return;
   }
-  el.innerHTML = `<div class="calendar-grid">${ls.map(l => {
+  // Nach user-definierter Reihenfolge sortieren (Fallback: älteste zuerst)
+  const sorted = [...ls].sort((a, b) => {
+    const ao = a.order ?? 999999;
+    const bo = b.order ?? 999999;
+    if (ao !== bo) return ao - bo;
+    return (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0);
+  });
+  el.innerHTML = `<div class="calendar-grid sortable-list-grid">${sorted.map(l => {
     const open = l.openCount || 0;
     return `
     <div class="calendar-card" data-list="${l.id}">
+      <span class="card-drag-handle" title="Ziehen zum Sortieren">⋮⋮</span>
       <div class="cal-name">
         <span style="font-size:1.3em;">${escapeHtml(l.icon || '📝')}</span>
         ${escapeHtml(l.name)}
@@ -633,11 +643,34 @@ function renderListCards(el, ls, emptyText) {
     `;
   }).join('')}</div>`;
   el.querySelectorAll('[data-list]').forEach(card => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('.card-drag-handle')) return;
       const l = lists.find(x => x.id === card.dataset.list);
       if (l) openList(l);
     });
   });
+
+  const grid = el.querySelector('.sortable-list-grid');
+  if (grid && typeof Sortable !== 'undefined') {
+    sortableLists = Sortable.create(grid, {
+      handle: '.card-drag-handle',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      dragClass: 'sortable-drag',
+      onEnd: async () => {
+        const ids = Array.from(grid.querySelectorAll('[data-list]')).map(el => el.dataset.list);
+        try {
+          const batch = writeBatch(db);
+          ids.forEach((id, idx) => {
+            batch.update(doc(db, 'lists', id), { order: idx + 1 });
+          });
+          await batch.commit();
+        } catch (err) {
+          console.error('list reorder failed:', err);
+        }
+      }
+    });
+  }
 }
 
 function renderPersonalCals(cals) {
