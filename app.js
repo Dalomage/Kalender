@@ -554,6 +554,7 @@ function updateDashboardClock() {
 }
 
 async function renderDashboard(content, scope = null) {
+  const myToken = ++dashboardRenderToken;
   const scopeFilter = scope
     ? (item) => item.householdId === scope.id
     : (item) => !item.householdId;
@@ -659,10 +660,13 @@ async function renderDashboard(content, scope = null) {
       });
     }));
   } catch (err) {
+    if (myToken !== dashboardRenderToken) return;
     const evEl = $('dash-events');
     if (evEl) evEl.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
     return;
   }
+  // Wenn zwischenzeitlich ein neuerer Render gestartet wurde: dessen Fetch übernimmt.
+  if (myToken !== dashboardRenderToken) return;
   const evEl = $('dash-events');
   if (!evEl) return;
   all.sort((a, b) => a.start - b.start);
