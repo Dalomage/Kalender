@@ -6,7 +6,7 @@ import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js';
 import {
-  getFirestore, collection, query, where, onSnapshot, getDocs,
+  getFirestore, collection, query, where, onSnapshot, getDocs, getDoc,
   addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, Timestamp,
   deleteField, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
@@ -63,16 +63,20 @@ let currentList = null;
 // Timer-IDs für lokale Erinnerungen — beim Logout löschen
 const reminderTimers = new Set();
 
+// Nutzerprofil-Cache: uid -> { name, email }
+const userCache = new Map();
+let myProfile = null;
+
 // ── Auth-State ────────────────────────────────────────────────
-onAuthStateChanged(auth, user => {
+onAuthStateChanged(auth, async user => {
   loadingEl.classList.add('hidden');
   currentUser = user;
   if (user) {
     loginEl.classList.add('hidden');
     appEl.classList.remove('hidden');
+    await loadMyProfile();
     startSubscriptions();
     goHome();
-    // Erinnerungen einmal beim Login planen (und danach alle 15 Min neu)
     scheduleAllReminders();
     setInterval(scheduleAllReminders, 15 * 60 * 1000);
   } else {
@@ -90,12 +94,61 @@ function stopAll() {
   if (fcInstance) { fcInstance.destroy(); fcInstance = null; }
   reminderTimers.forEach(id => clearTimeout(id));
   reminderTimers.clear();
+  userCache.clear();
+  myProfile = null;
   households = [];
   calendars = [];
   lists = [];
   currentHousehold = null;
   currentCalendar = null;
   currentList = null;
+}
+
+// ── Nutzerprofile ─────────────────────────────────────────────
+async function loadMyProfile() {
+  try {
+    const snap = await getDoc(doc(db, 'users', currentUser.uid));
+    const data = snap.exists() ? snap.data() : {};
+    myProfile = {
+      name: data.name || currentUser.email.split('@')[0],
+      email: currentUser.email
+    };
+  } catch {
+    myProfile = { name: currentUser.email.split('@')[0], email: currentUser.email };
+  }
+  userCache.set(currentUser.uid, myProfile);
+}
+
+async function ensureUserLoaded(uid) {
+  if (userCache.has(uid)) return userCache.get(uid);
+  // Platzhalter setzen, damit parallele Aufrufe nicht mehrfach fetchen
+  userCache.set(uid, { name: uid.slice(0, 6), email: '' });
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    const data = snap.exists() ? snap.data() : {};
+    const profile = {
+      name: data.name || (data.email ? data.email.split('@')[0] : uid.slice(0, 6)),
+      email: data.email || ''
+    };
+    userCache.set(uid, profile);
+    return profile;
+  } catch {
+    return userCache.get(uid);
+  }
+}
+
+function nameFor(uid) {
+  if (!uid) return '';
+  if (uid === currentUser?.uid) return myProfile?.name || currentUser.email.split('@')[0];
+  return userCache.get(uid)?.name || uid.slice(0, 6);
+}
+
+// Lädt Namen zu allen uids, ruft danach den Callback für Re-Rendering auf.
+async function ensureNamesFor(uids, rerender) {
+  const missing = uids.filter(u => u && !userCache.has(u));
+  if (!missing.length) return;
+  await Promise.all(missing.map(ensureUserLoaded));
+  if (rerender) rerender();
 }
 
 // ── Firestore-Subscriptions ───────────────────────────────────
@@ -297,7 +350,7 @@ function topbarHtml(extra = '', showSearch = false) {
       ${extra}
       <div class="topbar-spacer"></div>
       ${showSearch ? '<button class="logout-btn" id="search-btn" title="Termine suchen">🔍</button>' : ''}
-      <span class="user-badge">${escapeHtml(currentUser.email)}</span>
+      <button class="user-badge user-badge-btn" id="profile-btn" title="Profil">${escapeHtml(myProfile?.name || currentUser.email)}</button>
       <button class="logout-btn" id="logout-btn">Abmelden</button>
     </header>
   `;
@@ -306,6 +359,54 @@ function wireLogout() {
   $('logout-btn').addEventListener('click', () => signOut(auth));
   const sb = $('search-btn');
   if (sb) sb.addEventListener('click', openSearchModal);
+  const pb = $('profile-btn');
+  if (pb) pb.addEventListener('click', openProfileModal);
+}
+
+// ── Profil-Modal ──────────────────────────────────────────────
+function openProfileModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Dein Profil</h2>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Anzeigename</label>
+        <input type="text" id="pf-name" value="${escapeHtml(myProfile?.name || '')}" maxlength="40" />
+      </div>
+      <div class="field">
+        <label>E-Mail (kann nicht geändert werden)</label>
+        <input type="text" value="${escapeHtml(currentUser.email)}" disabled />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn" id="save-btn">Speichern</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  $('pf-name').focus();
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  $('save-btn').addEventListener('click', async () => {
+    const name = $('pf-name').value.trim();
+    if (!name) { $('modal-msg').innerHTML = `<div class="msg msg-error">Name darf nicht leer sein.</div>`; return; }
+    const btn = $('save-btn');
+    btn.disabled = true;
+    try {
+      await setDoc(doc(db, 'users', currentUser.uid), {
+        name, email: currentUser.email, updatedAt: serverTimestamp()
+      }, { merge: true });
+      myProfile.name = name;
+      userCache.set(currentUser.uid, myProfile);
+      overlay.remove();
+      renderCurrent();
+    } catch (err) {
+      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+    }
+  });
 }
 
 // ── Home: Haushalte + persönliche Kalender ────────────────────
@@ -444,11 +545,9 @@ async function renderDashboard(content) {
     evEl.innerHTML = `<div class="empty" style="padding:1rem;"><p>Keine Termine in den nächsten 7 Tagen.</p></div>`;
     return;
   }
-  const emailsByHh = {};
-  households.forEach(h => { emailsByHh[h.id] = h.memberEmails || {}; });
+  ensureNamesFor(all.map(e => e.assignee).filter(Boolean), () => renderDashboard(content));
   evEl.innerHTML = `<div class="event-list">${all.slice(0, 30).map(e => {
-    const emails = e.calendar.householdId ? (emailsByHh[e.calendar.householdId] || {}) : {};
-    const assigneeName = e.assignee ? shortName(emails[e.assignee] || '') : '';
+    const assigneeName = e.assignee ? nameFor(e.assignee) : '';
     return `
     <div class="event-row" data-cal="${e.calendar.id}" data-date="${e.start.toISOString()}">
       <div class="event-date">
@@ -636,8 +735,8 @@ function renderMembers(hh, canEdit) {
   el.innerHTML = `<div class="member-list">${entries.map(([uid, role]) => `
     <div class="member-row">
       <div>
-        <div class="member-name">${escapeHtml(emails[uid] || uid)}</div>
-        <div class="member-role">${role === 'owner' ? 'Owner' : 'Mitglied'}</div>
+        <div class="member-name">${escapeHtml(nameFor(uid))}</div>
+        <div class="member-role">${role === 'owner' ? 'Owner' : 'Mitglied'}${emails[uid] ? ' · ' + escapeHtml(emails[uid]) : ''}</div>
       </div>
       ${canEdit && uid !== currentUser.uid && role !== 'owner' ? `
         <button class="btn btn-secondary btn-small" data-remove-uid="${uid}">Entfernen</button>
@@ -647,6 +746,7 @@ function renderMembers(hh, canEdit) {
   el.querySelectorAll('[data-remove-uid]').forEach(btn => {
     btn.addEventListener('click', () => removeHouseholdMember(hh, btn.dataset.removeUid));
   });
+  ensureNamesFor(entries.map(([uid]) => uid), () => renderMembers(hh, canEdit));
 }
 
 async function removeHouseholdMember(hh, uid) {
@@ -1339,7 +1439,7 @@ function renderItems(list) {
         <input type="checkbox" ${i.done ? 'checked' : ''} data-toggle="${i.id}" />
         <span class="item-text">${i.qty && i.qty > 1 ? `<b>${i.qty}×</b> ` : ''}${escapeHtml(i.text)}</span>
       </label>
-      ${i.done && i.doneBy ? `<span class="item-meta">${escapeHtml(shortName(emails[i.doneBy] || i.doneBy))}</span>` : ''}
+      ${i.done && i.doneBy ? `<span class="item-meta">${escapeHtml(nameFor(i.doneBy))}</span>` : ''}
       <button class="item-del" data-del="${i.id}" title="Löschen">✕</button>
     </div>
   `;
@@ -1362,6 +1462,9 @@ function renderItems(list) {
   // Drag & Drop nur für offene Items
   const openList = $('open-items');
   if (openList && typeof Sortable !== 'undefined') {
+    // Namen der Abhaker prefetchen für Re-Render
+    ensureNamesFor(listItems.map(i => i.doneBy).filter(Boolean), () => renderItems(list));
+
     sortableOpen = Sortable.create(openList, {
       handle: '.drag-handle',
       animation: 150,
@@ -1791,13 +1894,19 @@ function openEventModal(cal, existing, canEdit = true) {
   // Assignee-Dropdown mit Mitgliedern befüllen (Haushalt, sonst nur ich)
   const assigneeSel = $('ev-assignee');
   const hh = cal.householdId ? households.find(h => h.id === cal.householdId) : null;
-  const emails = hh?.memberEmails || { [currentUser.uid]: currentUser.email };
-  Object.entries(emails).forEach(([uid, email]) => {
+  const uids = hh ? Object.keys(hh.members || {}) : [currentUser.uid];
+  uids.forEach(uid => {
     const opt = document.createElement('option');
     opt.value = uid;
-    opt.textContent = shortName(email);
+    opt.textContent = nameFor(uid);
     if (existing?.assignee === uid) opt.selected = true;
     assigneeSel.appendChild(opt);
+  });
+  ensureNamesFor(uids, () => {
+    uids.forEach(uid => {
+      const opt = assigneeSel.querySelector(`option[value="${uid}"]`);
+      if (opt) opt.textContent = nameFor(uid);
+    });
   });
 
   const allDayCheckbox = $('ev-allday');

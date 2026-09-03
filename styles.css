@@ -514,6 +514,22 @@ input, select, textarea { font-family: inherit; }
 }
 .logout-btn:hover { color: var(--text); border-color: var(--muted); }
 
+.user-badge-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+.user-badge-btn:hover {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--surface2);
+}
+
 .content {
   flex: 1;
   padding: 1.5rem;
