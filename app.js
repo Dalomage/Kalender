@@ -677,7 +677,7 @@ async function renderDashboard(content, scope = null) {
     evEl.innerHTML = `<div class="empty" style="padding:1rem;"><p>Keine Termine in den nächsten 7 Tagen.</p></div>`;
     return;
   }
-  ensureNamesFor(all.map(e => e.assignee).filter(Boolean), () => renderDashboard(content));
+  ensureNamesFor(all.map(e => e.assignee).filter(Boolean), () => renderDashboard(content, scope));
   evEl.innerHTML = `<div class="event-list">${all.slice(0, 30).map(e => {
     const assigneeName = e.assignee ? nameFor(e.assignee) : '';
     return `
