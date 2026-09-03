@@ -361,6 +361,29 @@ input, select, textarea { font-family: inherit; }
   text-align: right;
   font-style: italic;
 }
+.note-card { position: relative; }
+.note-fav {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: transparent;
+  border: 0;
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: #6b7280;
+  transition: color 0.15s, background 0.15s, transform 0.15s;
+  line-height: 1;
+}
+.note-fav:hover {
+  background: rgba(0,0,0,0.08);
+  transform: scale(1.15);
+}
+.note-card.favorite .note-fav {
+  color: #f59e0b;
+  text-shadow: 0 0 3px rgba(245,158,11,0.5);
+}
 
 /* ── Dashboard Event-Liste ── */
 .event-list {

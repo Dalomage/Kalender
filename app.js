@@ -530,14 +530,24 @@ function renderListsTab(content) {
 async function renderDashboard(content) {
   const openLists = lists.filter(l => (l.openCount || 0) > 0)
     .sort((a, b) => (b.openCount || 0) - (a.openCount || 0));
+  const favNotes = notes.filter(n => n.favorite);
 
   content.innerHTML = `
-    <div class="section-title"><span>Kommende Termine (7 Tage)</span></div>
+    ${favNotes.length ? `
+      <div class="section-title"><span>⭐ Favoriten</span></div>
+      <div id="dash-fav-notes"></div>
+    ` : ''}
+
+    <div class="section-title" ${favNotes.length ? 'style="margin-top:2rem;"' : ''}><span>Kommende Termine (7 Tage)</span></div>
     <div id="dash-events"><div class="empty" style="padding:1rem;"><p>Lade …</p></div></div>
 
     <div class="section-title" style="margin-top:2rem;"><span>Offene Listen</span></div>
     <div id="dash-lists"></div>
   `;
+
+  if (favNotes.length) {
+    renderNoteCards($('dash-fav-notes'), favNotes, '');
+  }
 
   // Offene Listen sofort
   const lel = $('dash-lists');
@@ -1912,21 +1922,41 @@ function renderNoteCards(el, ns, emptyText) {
     el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>${escapeHtml(emptyText)}</p></div>`;
     return;
   }
-  const sorted = [...ns].sort((a, b) => (b.updatedAt?.seconds ?? b.createdAt?.seconds ?? 0) - (a.updatedAt?.seconds ?? a.createdAt?.seconds ?? 0));
+  // Favoriten zuerst, danach nach letzter Änderung
+  const sorted = [...ns].sort((a, b) => {
+    const af = a.favorite ? 1 : 0;
+    const bf = b.favorite ? 1 : 0;
+    if (af !== bf) return bf - af;
+    return (b.updatedAt?.seconds ?? b.createdAt?.seconds ?? 0) - (a.updatedAt?.seconds ?? a.createdAt?.seconds ?? 0);
+  });
   el.innerHTML = `<div class="notes-grid">${sorted.map(n => {
     const color = n.color || NOTE_COLORS[0];
     const authorName = n.createdBy ? nameFor(n.createdBy) : '';
     return `
-      <div class="note-card" data-note="${n.id}" style="background:${escapeHtml(color)};">
+      <div class="note-card ${n.favorite ? 'favorite' : ''}" data-note="${n.id}" style="background:${escapeHtml(color)};">
+        <button class="note-fav" data-fav="${n.id}" title="${n.favorite ? 'Favorit entfernen' : 'Als Favorit markieren'}">${n.favorite ? '★' : '☆'}</button>
         <div class="note-text">${escapeHtml(n.text || '').replace(/\n/g, '<br>')}</div>
         ${authorName ? `<div class="note-author">— ${escapeHtml(authorName)}</div>` : ''}
       </div>
     `;
   }).join('')}</div>`;
   el.querySelectorAll('[data-note]').forEach(card => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('.note-fav')) return;
       const n = notes.find(x => x.id === card.dataset.note);
       if (n) openNoteModal(n, null);
+    });
+  });
+  el.querySelectorAll('[data-fav]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const n = notes.find(x => x.id === btn.dataset.fav);
+      if (!n) return;
+      try {
+        await updateDoc(doc(db, 'notes', n.id), { favorite: !n.favorite });
+      } catch (err) {
+        alert('Fehler: ' + err.message);
+      }
     });
   });
   ensureNamesFor(sorted.map(n => n.createdBy).filter(Boolean), () => renderNoteCards(el, ns, emptyText));
@@ -1948,6 +1978,9 @@ function openNoteModal(existing, preselectedHousehold) {
       <div class="field">
         <label>Text</label>
         <textarea id="note-text" rows="6" placeholder="Was möchtest du festhalten?">${escapeHtml(existing?.text || '')}</textarea>
+      </div>
+      <div class="field field-inline">
+        <label><input type="checkbox" id="note-fav-cb" ${existing?.favorite ? 'checked' : ''} /> ⭐ Als Favorit — erscheint auch im Dashboard</label>
       </div>
       ${isNew ? `
         <div class="field">
@@ -1991,11 +2024,13 @@ function openNoteModal(existing, preselectedHousehold) {
     const btn = $('save-btn');
     btn.disabled = true;
     try {
+      const fav = $('note-fav-cb').checked;
       if (isNew) {
         const hhId = $('note-hh').value || null;
         const payload = {
           text,
           color: selectedColor,
+          favorite: fav,
           owner: currentUser.uid,
           members: { [currentUser.uid]: 'owner' },
           createdBy: currentUser.uid,
@@ -2006,7 +2041,7 @@ function openNoteModal(existing, preselectedHousehold) {
         await addDoc(collection(db, 'notes'), payload);
       } else {
         await updateDoc(doc(db, 'notes', existing.id), {
-          text, color: selectedColor, updatedAt: serverTimestamp()
+          text, color: selectedColor, favorite: fav, updatedAt: serverTimestamp()
         });
       }
       overlay.remove();
