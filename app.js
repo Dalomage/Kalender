@@ -874,6 +874,7 @@ async function renderDashboard(content, scope = null) {
           ${e.live
             ? 'Läuft bis ' + (e.end ? e.end.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr' : '')
             : (e.allDay ? 'Ganztägig' : e.start.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr')}
+          ${!e.live && relativeTime(e.start) ? '· <b>' + relativeTime(e.start) + '</b>' : ''}
           · ${escapeHtml(e.calendar.name)}
           ${e.location ? ' · 📍 ' + escapeHtml(e.location) : ''}
           ${assigneeName ? ' · 👤 ' + escapeHtml(assigneeName) : ''}
@@ -1103,6 +1104,11 @@ function renderHouseholdTab(hh, isOwner) {
       </div>
       <div id="members"></div>
 
+      <div class="section-title" style="margin-top:2rem;">
+        <span>Letzte Aktivitäten</span>
+      </div>
+      <div id="activity-log"><div class="empty" style="padding:1rem;"><p style="color:var(--muted);">Lade …</p></div></div>
+
       ${isOwner ? `
         <div style="margin-top:3rem;text-align:right;">
           <button class="btn btn-danger btn-small" id="delete-hh-btn">Haushalt löschen</button>
@@ -1120,6 +1126,7 @@ function renderHouseholdTab(hh, isOwner) {
       $('leave-hh-btn').addEventListener('click', () => confirmLeaveHousehold(hh));
     }
     renderMembers(hh, isOwner);
+    renderActivityLog(hh);
   }
 }
 
@@ -1609,6 +1616,26 @@ function openCalendar(cal) {
   });
   fcInstance.render();
 
+  // Deutsche Feiertage für sichtbare Jahre einfügen (2 zurück, 5 nach vorn)
+  const nowYear = new Date().getFullYear();
+  for (let y = nowYear - 2; y <= nowYear + 5; y++) {
+    germanHolidays(y).forEach((h, idx) => {
+      const y2 = h.date.getFullYear();
+      const m2 = String(h.date.getMonth() + 1).padStart(2, '0');
+      const d2 = String(h.date.getDate()).padStart(2, '0');
+      fcInstance.addEvent({
+        id: `holiday_${y}_${idx}`,
+        title: '🎉 ' + h.name,
+        start: `${y2}-${m2}-${d2}`,
+        allDay: true,
+        display: 'background',
+        backgroundColor: 'rgba(168, 85, 247, 0.15)',
+        classNames: ['fc-holiday'],
+        editable: false
+      });
+    });
+  }
+
   unsubs.events = onSnapshot(collection(db, 'calendars', cal.id, 'events'), snap => {
     fcInstance.removeAllEvents();
     snap.forEach(d => {
@@ -1717,6 +1744,10 @@ function openCalendarSettingsModal(cal) {
           `).join('')}
         </div>
       </div>
+      <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
+        <button class="btn btn-secondary btn-small" id="export-ics-btn" style="width:100%;">📥 Als .ics exportieren</button>
+        <div class="field-hint" style="text-align:center;margin-top:6px;">Datei in Google/Apple Calendar importieren</div>
+      </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
         <button class="btn btn-danger" id="delete-btn">Löschen</button>
@@ -1725,6 +1756,7 @@ function openCalendarSettingsModal(cal) {
     </div>
   `;
   document.body.appendChild(overlay);
+  document.getElementById('export-ics-btn').addEventListener('click', () => exportCalendarAsIcs(cal));
   let selectedColor = cal.color;
   overlay.querySelectorAll('.color-swatch').forEach(sw => {
     sw.addEventListener('click', () => {
@@ -1829,6 +1861,7 @@ function openNewListModal(preselectedHousehold) {
       };
       if (hhId) payload.householdId = hhId;
       await addDoc(collection(db, 'lists'), payload);
+      logActivity(hhId, 'created', 'list', name);
       overlay.remove();
     } catch (err) {
       $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
@@ -2188,6 +2221,7 @@ function openListSettingsModal(list) {
       const itemsSnap = await getDocs(collection(db, 'lists', list.id, 'items'));
       await Promise.all(itemsSnap.docs.map(d => deleteDoc(d.ref)));
       await deleteDoc(doc(db, 'lists', list.id));
+      logActivity(list.householdId, 'deleted', 'list', list.name);
       overlay.remove();
       goHome();
     } catch (err) {
@@ -2447,6 +2481,7 @@ function openNoteModal(existing, preselectedHousehold) {
         };
         if (hhId) payload.householdId = hhId;
         await addDoc(collection(db, 'notes'), payload);
+        logActivity(hhId, 'created', 'note', text.slice(0, 40));
       } else {
         await updateDoc(doc(db, 'notes', existing.id), {
           text, color: selectedColor, favorite: fav, updatedAt: serverTimestamp()
@@ -2466,6 +2501,7 @@ function openNoteModal(existing, preselectedHousehold) {
       delete backup.id;
       try {
         await deleteDoc(doc(db, 'notes', existing.id));
+        logActivity(existing.householdId, 'deleted', 'note', (existing.text || '').slice(0, 40));
         overlay.remove();
         showToast(`Notiz gelöscht`, {
           undo: async () => {
@@ -2664,6 +2700,7 @@ function openEventModal(cal, existing, canEdit = true) {
           payload.createdAt = serverTimestamp();
           payload.createdBy = currentUser.uid;
           await addDoc(collection(db, 'calendars', cal.id, 'events'), payload);
+          logActivity(cal.householdId, 'created', 'event', title);
           // Kopien in weitere ausgewählte Kalender
           const copyTargets = Array.from(document.querySelectorAll('[data-copy-cal]:checked')).map(cb => cb.dataset.copyCal);
           if (copyTargets.length) {
@@ -2675,6 +2712,7 @@ function openEventModal(cal, existing, canEdit = true) {
           }
         } else {
           await updateDoc(doc(db, 'calendars', cal.id, 'events', existing.id), payload);
+          logActivity(cal.householdId, 'updated', 'event', title);
         }
         overlay.remove();
       } catch (err) {
@@ -2692,6 +2730,7 @@ function openEventModal(cal, existing, canEdit = true) {
         delete backup.id;
         try {
           await deleteDoc(doc(db, 'calendars', cal.id, 'events', existing.id));
+          logActivity(cal.householdId, 'deleted', 'event', existing.title || 'Termin');
           overlay.remove();
           showToast(`Termin „${existing.title || 'Ohne Titel'}" gelöscht`, {
             undo: async () => {
@@ -2866,6 +2905,190 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// ── Aktivitätslog ─────────────────────────────────────────────
+const ACTIVITY_LABELS = {
+  event:    { icon: '📅', word: 'Termin' },
+  list:     { icon: '📝', word: 'Liste' },
+  listItem: { icon: '✅', word: 'Eintrag' },
+  note:     { icon: '📌', word: 'Notiz' },
+  calendar: { icon: '📆', word: 'Kalender' },
+  member:   { icon: '👥', word: 'Mitglied' }
+};
+const ACTIVITY_VERB = { created: 'angelegt', updated: 'geändert', deleted: 'gelöscht', joined: 'beigetreten' };
+function timeAgo(date) {
+  if (!date) return '';
+  const s = Math.round((Date.now() - date.getTime()) / 1000);
+  if (s < 60) return 'gerade eben';
+  const m = Math.round(s / 60);
+  if (m < 60) return `vor ${m} Min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `vor ${h} Std`;
+  const d = Math.round(h / 24);
+  if (d < 7) return `vor ${d} Tag${d === 1 ? '' : 'en'}`;
+  return date.toLocaleDateString('de-DE');
+}
+async function renderActivityLog(hh) {
+  const el = $('activity-log');
+  if (!el) return;
+  try {
+    const snap = await getDocs(query(collection(db, 'activity'), where('householdId', '==', hh.id)));
+    const entries = [];
+    snap.forEach(d => entries.push({ id: d.id, ...d.data() }));
+    entries.sort((a, b) => (b.at?.seconds || 0) - (a.at?.seconds || 0));
+    const top = entries.slice(0, 30);
+    if (!top.length) {
+      el.innerHTML = `<div class="empty" style="padding:1rem;"><p>Noch keine Aktivitäten.</p></div>`;
+      return;
+    }
+    el.innerHTML = `<div class="activity-list">${top.map(a => {
+      const lbl = ACTIVITY_LABELS[a.targetType] || { icon: '•', word: a.targetType };
+      const verb = ACTIVITY_VERB[a.action] || a.action;
+      const when = a.at ? timeAgo(a.at.toDate()) : '';
+      return `
+        <div class="activity-row">
+          <span class="activity-icon">${lbl.icon}</span>
+          <div class="activity-body">
+            <div><b>${escapeHtml(nameFor(a.byUid))}</b> hat ${escapeHtml(lbl.word.toLowerCase())} „${escapeHtml(a.targetName || '')}" ${escapeHtml(verb)}</div>
+            <div class="activity-when">${escapeHtml(when)}</div>
+          </div>
+        </div>
+      `;
+    }).join('')}</div>`;
+    ensureNamesFor(top.map(a => a.byUid), () => renderActivityLog(hh));
+  } catch (err) {
+    el.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function logActivity(householdId, action, targetType, targetName) {
+  if (!householdId || !currentUser) return;
+  try {
+    await addDoc(collection(db, 'activity'), {
+      householdId,
+      action,      // 'created' | 'updated' | 'deleted' | 'joined'
+      targetType,  // 'event' | 'list' | 'listItem' | 'note' | 'calendar' | 'member'
+      targetName,
+      byUid: currentUser.uid,
+      at: serverTimestamp()
+    });
+  } catch (err) { /* stille Ignoranz — Log darf nicht die eigentliche Aktion blockieren */ }
+}
+
+// ── iCal-Export (.ics) ────────────────────────────────────────
+function icsEscape(s) {
+  return String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+}
+function icsFormatDate(d) {
+  return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+}
+function icsFormatDateTime(d) {
+  return icsFormatDate(d) + 'T' + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0') + '00';
+}
+function eventsToIcs(cal, events) {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Kalenderkaiser//DE',
+    'CALSCALE:GREGORIAN',
+    `X-WR-CALNAME:${icsEscape(cal.name)}`
+  ];
+  const rruleMap = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
+  events.forEach(ev => {
+    const startDate = tsToDate(ev.start);
+    const endDate = tsToDate(ev.end) || startDate;
+    if (!startDate) return;
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${ev.id}@kalenderkaiser.pages.dev`);
+    lines.push(`SUMMARY:${icsEscape(ev.title || '')}`);
+    if (ev.allDay) {
+      lines.push(`DTSTART;VALUE=DATE:${icsFormatDate(startDate)}`);
+      lines.push(`DTEND;VALUE=DATE:${icsFormatDate(addDays(endDate, 1))}`);
+    } else {
+      lines.push(`DTSTART:${icsFormatDateTime(startDate)}`);
+      lines.push(`DTEND:${icsFormatDateTime(endDate)}`);
+    }
+    if (ev.location) lines.push(`LOCATION:${icsEscape(ev.location)}`);
+    if (ev.note) lines.push(`DESCRIPTION:${icsEscape(ev.note)}`);
+    if (rruleMap[ev.recurrence]) lines.push(`RRULE:FREQ=${rruleMap[ev.recurrence]}`);
+    lines.push('END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+async function exportCalendarAsIcs(cal) {
+  try {
+    const snap = await getDocs(collection(db, 'calendars', cal.id, 'events'));
+    const events = [];
+    snap.forEach(d => events.push({ id: d.id, ...d.data() }));
+    const ics = eventsToIcs(cal, events);
+    const blob = new Blob([ics], { type: 'text/calendar' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (cal.name || 'kalender').replace(/[^a-z0-9äöüß]+/gi, '_') + '.ics';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`${events.length} Termine exportiert`, { type: 'success' });
+  } catch (err) {
+    showToast('Export fehlgeschlagen: ' + err.message, { type: 'error' });
+  }
+}
+
+// ── Deutsche Feiertage ────────────────────────────────────────
+function easterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+function addDays(date, days) { const d = new Date(date); d.setDate(d.getDate() + days); return d; }
+function germanHolidays(year) {
+  const easter = easterSunday(year);
+  return [
+    { date: new Date(year, 0, 1),   name: 'Neujahr' },
+    { date: addDays(easter, -2),    name: 'Karfreitag' },
+    { date: addDays(easter, 1),     name: 'Ostermontag' },
+    { date: new Date(year, 4, 1),   name: 'Tag der Arbeit' },
+    { date: addDays(easter, 39),    name: 'Christi Himmelfahrt' },
+    { date: addDays(easter, 50),    name: 'Pfingstmontag' },
+    { date: new Date(year, 9, 3),   name: 'Tag der Deutschen Einheit' },
+    { date: new Date(year, 11, 25), name: '1. Weihnachtstag' },
+    { date: new Date(year, 11, 26), name: '2. Weihnachtstag' }
+  ];
+}
+
+// ── Relative Zeit ─────────────────────────────────────────────
+function relativeTime(date) {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTarget = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayDiff = Math.round((startOfTarget - startOfToday) / (24 * 60 * 60 * 1000));
+  if (dayDiff === 0) {
+    const diffMin = Math.round((date - now) / 60000);
+    if (diffMin < 0) return '';
+    if (diffMin < 60) return `in ${diffMin} Min`;
+    return `heute in ${Math.round(diffMin / 60)} h`;
+  }
+  if (dayDiff === 1) return 'morgen';
+  if (dayDiff > 1 && dayDiff < 7) return `in ${dayDiff} Tagen`;
+  if (dayDiff === -1) return 'gestern';
+  if (dayDiff < 0 && dayDiff > -7) return `vor ${-dayDiff} Tagen`;
+  return '';
+}
+
 // ── Toast-System (Feedback + Undo) ────────────────────────────
 function ensureToastContainer() {
   let c = document.getElementById('toast-container');
@@ -2907,6 +3130,98 @@ function showToast(message, opts = {}) {
   const dur = opts.duration ?? (opts.undo ? 6000 : 2500);
   setTimeout(dismiss, dur);
 }
+
+// ── Command Palette (Ctrl+K / Cmd+K) ──────────────────────────
+function buildPaletteItems() {
+  const items = [];
+  items.push({ label: '📊 Home Dashboard', action: () => { homeTab = 'dashboard'; goHome(); } });
+  items.push({ label: '📅 Home · Persönliche Kalender', action: () => { homeTab = 'calendars'; goHome(); } });
+  items.push({ label: '📝 Home · Persönliche Listen', action: () => { homeTab = 'lists'; goHome(); } });
+  items.push({ label: '📌 Home · Persönliche Notizen', action: () => { homeTab = 'notes'; goHome(); } });
+  households.forEach(h => {
+    items.push({ label: `🏠 ${h.name} · Dashboard`, action: () => { householdTab = 'dashboard'; openHousehold(h); } });
+    items.push({ label: `🏠 ${h.name} · Kalender`, action: () => { householdTab = 'calendars'; openHousehold(h); } });
+    items.push({ label: `🏠 ${h.name} · Listen`, action: () => { householdTab = 'lists'; openHousehold(h); } });
+    items.push({ label: `🏠 ${h.name} · Notizen`, action: () => { householdTab = 'notes'; openHousehold(h); } });
+    items.push({ label: `🏠 ${h.name} · Mitglieder`, action: () => { householdTab = 'members'; openHousehold(h); } });
+  });
+  calendars.forEach(c => {
+    items.push({ label: `📆 Kalender: ${c.name}`, action: () => openCalendar(c) });
+  });
+  lists.forEach(l => {
+    items.push({ label: `📝 Liste: ${l.name}`, action: () => openList(l) });
+  });
+  return items;
+}
+function openCommandPalette() {
+  if (document.getElementById('cmd-palette')) return;
+  const items = buildPaletteItems();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'cmd-palette';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:520px;">
+      <input type="text" id="cmd-input" placeholder="🔍 Suchen: Dashboard, Kalender, Liste …" autocomplete="off" style="width:100%;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;margin-bottom:8px;" />
+      <div id="cmd-results" class="cmd-results"></div>
+      <div class="field-hint" style="text-align:center;margin-top:8px;">↑↓ zum Navigieren · Enter zum Öffnen · Esc zum Schließen</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const input = document.getElementById('cmd-input');
+  const results = document.getElementById('cmd-results');
+  let selectedIdx = 0;
+  let filtered = items;
+
+  const close = () => overlay.remove();
+
+  const doFilter = () => {
+    const q = input.value.trim().toLowerCase();
+    filtered = q
+      ? items.filter(it => it.label.toLowerCase().includes(q))
+      : items;
+    selectedIdx = 0;
+    renderResults();
+  };
+  const renderResults = () => {
+    if (!filtered.length) {
+      results.innerHTML = `<div class="empty" style="padding:1rem;"><p>Keine Treffer.</p></div>`;
+      return;
+    }
+    results.innerHTML = filtered.slice(0, 12).map((it, i) => `
+      <div class="cmd-row ${i === selectedIdx ? 'sel' : ''}" data-idx="${i}">${escapeHtml(it.label)}</div>
+    `).join('');
+    results.querySelectorAll('.cmd-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const it = filtered[parseInt(row.dataset.idx, 10)];
+        close();
+        setTimeout(it.action, 0);
+      });
+    });
+  };
+
+  input.addEventListener('input', doFilter);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, Math.min(11, filtered.length - 1)); renderResults(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, 0); renderResults(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      const it = filtered[selectedIdx];
+      if (it) { close(); setTimeout(it.action, 0); }
+    }
+    else if (e.key === 'Escape') close();
+  });
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  doFilter();
+  setTimeout(() => input.focus(), 20);
+}
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    if (currentUser) {
+      e.preventDefault();
+      openCommandPalette();
+    }
+  }
+});
 
 // ── Service Worker + Auto-Update ──────────────────────────────
 if ('serviceWorker' in navigator) {

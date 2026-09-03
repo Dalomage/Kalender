@@ -104,6 +104,19 @@ service cloud.firestore {
       }
     }
 
+    // ── Aktivitätslog ─────────────────────────────────────────
+    match /activity/{id} {
+      allow read: if request.auth != null
+        && exists(/databases/$(database)/documents/households/$(resource.data.householdId))
+        && request.auth.uid in get(/databases/$(database)/documents/households/$(resource.data.householdId)).data.members;
+      allow create: if request.auth != null
+        && request.resource.data.byUid == request.auth.uid
+        && request.resource.data.householdId != null
+        && exists(/databases/$(database)/documents/households/$(request.resource.data.householdId))
+        && request.auth.uid in get(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.members;
+      allow delete: if false;
+    }
+
     // ── Notizen (Haushalts-Pinnwand) ──────────────────────────
     match /notes/{noteId} {
       function isDirectMember() {

@@ -378,6 +378,49 @@ input, select, textarea { font-family: inherit; }
   .content { max-width: 1280px; }
 }
 
+/* Aktivitätslog */
+.activity-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.activity-row {
+  display: flex;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.87rem;
+}
+.activity-row:last-child { border-bottom: 0; }
+.activity-icon { font-size: 1.1rem; line-height: 1.4; }
+.activity-body { flex: 1; min-width: 0; }
+.activity-when { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+/* Command Palette */
+.cmd-results {
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg2);
+}
+.cmd-row {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+  transition: background 0.1s;
+}
+.cmd-row:last-child { border-bottom: 0; }
+.cmd-row:hover, .cmd-row.sel {
+  background: var(--surface2);
+  color: var(--primary);
+}
+
+/* Feiertage im FullCalendar */
+.fc-holiday { font-weight: 600; }
+
 /* Toasts */
 #toast-container {
   position: fixed;
