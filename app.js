@@ -341,7 +341,17 @@ function friendlyAuthError(code) {
 
 // ── Rendering-Router ──────────────────────────────────────────
 function renderCurrent() {
-  if (view === 'home') renderHome();
+  if (view === 'home') {
+    // Home-Layout nicht komplett neu bauen wenn schon da — sonst
+    // rennen bei jedem Snapshot mehrere Dashboard-Fetches parallel
+    // und der User sieht ein Ladeflackern
+    if (document.querySelector('.home-tabs')) {
+      renderHouseholdCards();
+      renderHomeTab();
+    } else {
+      renderHome();
+    }
+  }
   else if (view === 'household') {
     const fresh = households.find(h => h.id === currentHousehold?.id);
     if (!fresh) { goHome(); return; }
@@ -566,35 +576,21 @@ async function renderDashboard(content, scope = null) {
     .sort((a, b) => (b.openCount || 0) - (a.openCount || 0));
   const favNotes = scopeNotes.filter(n => n.favorite);
 
-  // Wenn Home-Dashboard (persönlich) und komplett leer: Hinweis auf Haushalte
-  if (!scope && !scopeCals.length && !scopeLists.length && !scopeNotes.length) {
-    if (households.length) {
-      content.innerHTML = `
-        <div class="empty" style="padding:2rem;text-align:center;">
-          <p style="margin-bottom:1rem;">Du hast noch keine <b>persönlichen</b> Kalender, Listen oder Notizen.</p>
-          <p style="color:var(--muted);font-size:0.9rem;">Alle Inhalte deiner Haushalte findest du oben unter „Haushalte" — Dashboard, Kalender, Listen und Notizen pro Haushalt.</p>
-        </div>
-      `;
-    } else {
-      content.innerHTML = `
-        <div class="empty" style="padding:2rem;text-align:center;">
-          <p>Noch nichts angelegt. Fang mit einem <b>Haushalt</b> oben an — dort teilst du Kalender und Listen mit anderen.</p>
-        </div>
-      `;
-    }
-    return;
-  }
-
   // Grundgerüst nur einmalig aufbauen; bei erneuten Aufrufen nur befüllen.
   // Verhindert, dass parallele Snapshots das "Lade …"-Placeholder wieder
   // dazwischen schieben.
   const alreadyBuilt = content.querySelector('.dash-clock') !== null;
   if (!alreadyBuilt) {
+    const emptyHint = !scope
+      ? `<div id="dash-empty-hint" class="empty" style="display:none;padding:1.5rem;text-align:center;"><p style="margin-bottom:0.5rem;">Du hast noch keine <b>persönlichen</b> Kalender, Listen oder Notizen.</p><p style="color:var(--muted);font-size:0.85rem;">Alle Inhalte deiner Haushalte findest du oben unter „Haushalte".</p></div>`
+      : '';
     content.innerHTML = `
       <div class="dash-clock">
         <div class="dash-clock-time" id="dash-clock-time">--:--</div>
         <div class="dash-clock-date" id="dash-clock-date">…</div>
       </div>
+
+      ${emptyHint}
 
       <div id="dash-fav-notes-section" style="display:none;margin-top:1.5rem;">
         <div class="section-title"><span>⭐ Favoriten</span></div>
@@ -602,7 +598,7 @@ async function renderDashboard(content, scope = null) {
       </div>
 
       <div class="section-title" style="margin-top:1.5rem;"><span>Kommende Termine (7 Tage)</span></div>
-      <div id="dash-events"><div class="empty" style="padding:1rem;"><p>Lade …</p></div></div>
+      <div id="dash-events"></div>
 
       <div class="section-title" style="margin-top:2rem;"><span>Offene Listen</span></div>
       <div id="dash-lists"></div>
@@ -610,6 +606,13 @@ async function renderDashboard(content, scope = null) {
     updateDashboardClock();
     if (dashboardClockTimer) clearInterval(dashboardClockTimer);
     dashboardClockTimer = setInterval(updateDashboardClock, 30_000);
+  }
+
+  // Empty-Hinweis (nur Home-Dashboard) an/aus
+  const hint = $('dash-empty-hint');
+  if (hint) {
+    const isEmpty = !scopeCals.length && !scopeLists.length && !scopeNotes.length;
+    hint.style.display = isEmpty ? '' : 'none';
   }
 
   // Favoriten-Sektion an/aus schalten
