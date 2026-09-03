@@ -529,6 +529,21 @@ function renderListsTab(content) {
 
 // ── Dashboard (allgemein, gefiltert nach Scope) ───────────────
 // scope: null = nur persönlich (Home), oder ein Haushalt-Objekt = nur dessen Content
+let dashboardClockTimer = null;
+function updateDashboardClock() {
+  const el = document.getElementById('dash-clock-time');
+  const dateEl = document.getElementById('dash-clock-date');
+  if (!el || !dateEl) {
+    if (dashboardClockTimer) { clearInterval(dashboardClockTimer); dashboardClockTimer = null; }
+    return;
+  }
+  const now = new Date();
+  el.textContent = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  dateEl.textContent = now.toLocaleDateString('de-DE', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  });
+}
+
 async function renderDashboard(content, scope = null) {
   const scopeFilter = scope
     ? (item) => item.householdId === scope.id
@@ -561,17 +576,26 @@ async function renderDashboard(content, scope = null) {
   }
 
   content.innerHTML = `
+    <div class="dash-clock">
+      <div class="dash-clock-time" id="dash-clock-time">--:--</div>
+      <div class="dash-clock-date" id="dash-clock-date">…</div>
+    </div>
+
     ${favNotes.length ? `
-      <div class="section-title"><span>⭐ Favoriten</span></div>
+      <div class="section-title" style="margin-top:1.5rem;"><span>⭐ Favoriten</span></div>
       <div id="dash-fav-notes"></div>
     ` : ''}
 
-    <div class="section-title" ${favNotes.length ? 'style="margin-top:2rem;"' : ''}><span>Kommende Termine (7 Tage)</span></div>
+    <div class="section-title" style="margin-top:1.5rem;"><span>Kommende Termine (7 Tage)</span></div>
     <div id="dash-events"><div class="empty" style="padding:1rem;"><p>Lade …</p></div></div>
 
     <div class="section-title" style="margin-top:2rem;"><span>Offene Listen</span></div>
     <div id="dash-lists"></div>
   `;
+
+  updateDashboardClock();
+  if (dashboardClockTimer) clearInterval(dashboardClockTimer);
+  dashboardClockTimer = setInterval(updateDashboardClock, 30_000);
 
   if (favNotes.length) {
     renderNoteCards($('dash-fav-notes'), favNotes, '');
