@@ -554,7 +554,6 @@ function updateDashboardClock() {
 }
 
 async function renderDashboard(content, scope = null) {
-  const myToken = ++dashboardRenderToken;
   const scopeFilter = scope
     ? (item) => item.householdId === scope.id
     : (item) => !item.householdId;
@@ -585,27 +584,36 @@ async function renderDashboard(content, scope = null) {
     return;
   }
 
-  content.innerHTML = `
-    <div class="dash-clock">
-      <div class="dash-clock-time" id="dash-clock-time">--:--</div>
-      <div class="dash-clock-date" id="dash-clock-date">…</div>
-    </div>
+  // Grundgerüst nur einmalig aufbauen; bei erneuten Aufrufen nur befüllen.
+  // Verhindert, dass parallele Snapshots das "Lade …"-Placeholder wieder
+  // dazwischen schieben.
+  const alreadyBuilt = content.querySelector('.dash-clock') !== null;
+  if (!alreadyBuilt) {
+    content.innerHTML = `
+      <div class="dash-clock">
+        <div class="dash-clock-time" id="dash-clock-time">--:--</div>
+        <div class="dash-clock-date" id="dash-clock-date">…</div>
+      </div>
 
-    ${favNotes.length ? `
-      <div class="section-title" style="margin-top:1.5rem;"><span>⭐ Favoriten</span></div>
-      <div id="dash-fav-notes"></div>
-    ` : ''}
+      <div id="dash-fav-notes-section" style="display:none;margin-top:1.5rem;">
+        <div class="section-title"><span>⭐ Favoriten</span></div>
+        <div id="dash-fav-notes"></div>
+      </div>
 
-    <div class="section-title" style="margin-top:1.5rem;"><span>Kommende Termine (7 Tage)</span></div>
-    <div id="dash-events"><div class="empty" style="padding:1rem;"><p>Lade …</p></div></div>
+      <div class="section-title" style="margin-top:1.5rem;"><span>Kommende Termine (7 Tage)</span></div>
+      <div id="dash-events"><div class="empty" style="padding:1rem;"><p>Lade …</p></div></div>
 
-    <div class="section-title" style="margin-top:2rem;"><span>Offene Listen</span></div>
-    <div id="dash-lists"></div>
-  `;
+      <div class="section-title" style="margin-top:2rem;"><span>Offene Listen</span></div>
+      <div id="dash-lists"></div>
+    `;
+    updateDashboardClock();
+    if (dashboardClockTimer) clearInterval(dashboardClockTimer);
+    dashboardClockTimer = setInterval(updateDashboardClock, 30_000);
+  }
 
-  updateDashboardClock();
-  if (dashboardClockTimer) clearInterval(dashboardClockTimer);
-  dashboardClockTimer = setInterval(updateDashboardClock, 30_000);
+  // Favoriten-Sektion an/aus schalten
+  const favSection = $('dash-fav-notes-section');
+  if (favSection) favSection.style.display = favNotes.length ? '' : 'none';
 
   if (favNotes.length) {
     renderNoteCards($('dash-fav-notes'), favNotes, '');
@@ -651,14 +659,10 @@ async function renderDashboard(content, scope = null) {
       });
     }));
   } catch (err) {
-    if (myToken === dashboardRenderToken) {
-      const evEl = $('dash-events');
-      if (evEl) evEl.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
-    }
+    const evEl = $('dash-events');
+    if (evEl) evEl.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
     return;
   }
-  // Zwischenzeitlich neuer Render? Dann Ergebnis verwerfen.
-  if (myToken !== dashboardRenderToken) return;
   const evEl = $('dash-events');
   if (!evEl) return;
   all.sort((a, b) => a.start - b.start);
