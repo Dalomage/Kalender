@@ -419,7 +419,13 @@ input, select, textarea { font-family: inherit; }
 }
 
 /* Feiertage im FullCalendar */
-.fc-holiday { font-weight: 600; }
+.fc-holiday { font-weight: 600; cursor: default !important; }
+.fc-holiday .fc-event-title { font-weight: 600; }
+.fc-daygrid-event.fc-holiday {
+  background: #a855f7 !important;
+  border-color: #a855f7 !important;
+  color: #fff !important;
+}
 
 /* Toasts */
 #toast-container {

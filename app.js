@@ -1609,9 +1609,19 @@ function openCalendar(cal) {
     eventStartEditable: canEdit,
     eventDurationEditable: canEdit,
     dateClick: canEdit ? info => openEventModal(cal, { start: info.dateStr, allDay: info.allDay }) : undefined,
-    eventClick: info => openEventModal(cal, info.event.extendedProps._doc, canEdit),
-    eventDrop: info => handleEventChange(cal, info, 'drop'),
-    eventResize: info => handleEventChange(cal, info, 'resize'),
+    eventClick: info => {
+      if (info.event.extendedProps._holiday) return;
+      if (info.event.extendedProps._overlayCalId) return; // Overlay-Events read-only, kein Modal
+      openEventModal(cal, info.event.extendedProps._doc, canEdit);
+    },
+    eventDrop: info => {
+      if (info.event.extendedProps._holiday) { info.revert(); return; }
+      handleEventChange(cal, info, 'drop');
+    },
+    eventResize: info => {
+      if (info.event.extendedProps._holiday) { info.revert(); return; }
+      handleEventChange(cal, info, 'resize');
+    },
     events: (_info, success) => success([])
   });
   fcInstance.render();
@@ -1628,10 +1638,14 @@ function openCalendar(cal) {
         title: '🎉 ' + h.name,
         start: `${y2}-${m2}-${d2}`,
         allDay: true,
-        display: 'background',
-        backgroundColor: 'rgba(168, 85, 247, 0.15)',
+        backgroundColor: '#a855f7',
+        borderColor: '#a855f7',
+        textColor: '#ffffff',
         classNames: ['fc-holiday'],
-        editable: false
+        editable: false,
+        startEditable: false,
+        durationEditable: false,
+        extendedProps: { _holiday: true }
       });
     });
   }
