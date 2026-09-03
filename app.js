@@ -55,9 +55,13 @@ let fcInstance = null;
 
 // aktuelle Ansicht: 'home' | 'household' | 'calendar' | 'list'
 let view = 'home';
+let homeTab = 'dashboard'; // 'dashboard' | 'calendars' | 'lists'
 let currentHousehold = null;
 let currentCalendar = null;
 let currentList = null;
+
+// Timer-IDs für lokale Erinnerungen — beim Logout löschen
+const reminderTimers = new Set();
 
 // ── Auth-State ────────────────────────────────────────────────
 onAuthStateChanged(auth, user => {
@@ -68,6 +72,9 @@ onAuthStateChanged(auth, user => {
     appEl.classList.remove('hidden');
     startSubscriptions();
     goHome();
+    // Erinnerungen einmal beim Login planen (und danach alle 15 Min neu)
+    scheduleAllReminders();
+    setInterval(scheduleAllReminders, 15 * 60 * 1000);
   } else {
     appEl.classList.add('hidden');
     loginEl.classList.remove('hidden');
@@ -81,6 +88,8 @@ function stopAll() {
     if (unsubs[k]) { unsubs[k](); unsubs[k] = null; }
   });
   if (fcInstance) { fcInstance.destroy(); fcInstance = null; }
+  reminderTimers.forEach(id => clearTimeout(id));
+  reminderTimers.clear();
   households = [];
   calendars = [];
   lists = [];
@@ -303,8 +312,6 @@ function wireLogout() {
 const CALENDAR_COLORS = ['#14b8a6', '#3b82f6', '#a855f7', '#ec4899', '#f59e0b', '#ef4444', '#22c55e', '#0ea5e9'];
 
 function renderHome() {
-  const personalCals = calendars.filter(c => !c.householdId);
-  const personalLists = lists.filter(l => !l.householdId);
   appEl.innerHTML = `
     ${topbarHtml('', true)}
     <main class="content">
@@ -317,28 +324,161 @@ function renderHome() {
       </div>
       <div id="households"></div>
 
-      <div class="section-title" style="margin-top:2rem;">
-        <span>Persönliche Kalender</span>
-        <button class="btn btn-small" id="new-cal-btn">+ Neuer Kalender</button>
+      <div class="home-tabs">
+        <button data-tab="dashboard" class="${homeTab === 'dashboard' ? 'active' : ''}">📊 Dashboard</button>
+        <button data-tab="calendars" class="${homeTab === 'calendars' ? 'active' : ''}">📅 Kalender</button>
+        <button data-tab="lists" class="${homeTab === 'lists' ? 'active' : ''}">📝 Listen</button>
       </div>
-      <div id="personal-cals"></div>
 
-      <div class="section-title" style="margin-top:2rem;">
-        <span>Persönliche Listen</span>
-        <button class="btn btn-small" id="new-list-btn">+ Neue Liste</button>
-      </div>
-      <div id="personal-lists"></div>
+      <div id="home-tab-content"></div>
     </main>
   `;
   wireLogout();
   $('new-hh-btn').addEventListener('click', openNewHouseholdModal);
   $('join-hh-btn').addEventListener('click', openJoinHouseholdModal);
-  $('new-cal-btn').addEventListener('click', () => openNewCalendarModal(null));
-  $('new-list-btn').addEventListener('click', () => openNewListModal(null));
+
+  appEl.querySelectorAll('.home-tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      homeTab = btn.dataset.tab;
+      renderHome();
+    });
+  });
 
   renderHouseholdCards();
+  renderHomeTab();
+}
+
+function renderHomeTab() {
+  const content = $('home-tab-content');
+  if (!content) return;
+  if (homeTab === 'dashboard') renderDashboard(content);
+  else if (homeTab === 'calendars') renderCalendarsTab(content);
+  else if (homeTab === 'lists') renderListsTab(content);
+}
+
+function renderCalendarsTab(content) {
+  const personalCals = calendars.filter(c => !c.householdId);
+  content.innerHTML = `
+    <div class="section-title">
+      <span>Persönliche Kalender</span>
+      <button class="btn btn-small" id="new-cal-btn">+ Neuer Kalender</button>
+    </div>
+    <div id="personal-cals"></div>
+  `;
+  $('new-cal-btn').addEventListener('click', () => openNewCalendarModal(null));
   renderPersonalCals(personalCals);
+}
+
+function renderListsTab(content) {
+  const personalLists = lists.filter(l => !l.householdId);
+  content.innerHTML = `
+    <div class="section-title">
+      <span>Persönliche Listen</span>
+      <button class="btn btn-small" id="new-list-btn">+ Neue Liste</button>
+    </div>
+    <div id="personal-lists"></div>
+  `;
+  $('new-list-btn').addEventListener('click', () => openNewListModal(null));
   renderListCards($('personal-lists'), personalLists, 'Noch keine persönliche Liste. Anlegen z.B. für eigene To-Dos.');
+}
+
+// ── Dashboard ─────────────────────────────────────────────────
+async function renderDashboard(content) {
+  const openLists = lists.filter(l => (l.openCount || 0) > 0)
+    .sort((a, b) => (b.openCount || 0) - (a.openCount || 0));
+
+  content.innerHTML = `
+    <div class="section-title"><span>Kommende Termine (7 Tage)</span></div>
+    <div id="dash-events"><div class="empty" style="padding:1rem;"><p>Lade …</p></div></div>
+
+    <div class="section-title" style="margin-top:2rem;"><span>Offene Listen</span></div>
+    <div id="dash-lists"></div>
+  `;
+
+  // Offene Listen sofort
+  const lel = $('dash-lists');
+  if (!openLists.length) {
+    lel.innerHTML = `<div class="empty" style="padding:1rem;"><p>Alle Listen sind abgehakt.</p></div>`;
+  } else {
+    lel.innerHTML = `<div class="calendar-grid">${openLists.map(l => `
+      <div class="calendar-card" data-list="${l.id}">
+        <div class="cal-name">
+          <span style="font-size:1.3em;">${escapeHtml(l.icon || '📝')}</span>
+          ${escapeHtml(l.name)}
+          <span class="count-badge">${l.openCount}</span>
+        </div>
+        <div class="cal-role">${l.householdId ? '🏠 ' + escapeHtml(households.find(h => h.id === l.householdId)?.name || '') : 'Persönlich'}</div>
+      </div>
+    `).join('')}</div>`;
+    lel.querySelectorAll('[data-list]').forEach(card => {
+      card.addEventListener('click', () => {
+        const l = lists.find(x => x.id === card.dataset.list);
+        if (l) openList(l);
+      });
+    });
+  }
+
+  // Kommende Termine — alle Kalender in Firestore abfragen
+  const evEl = $('dash-events');
+  const now = new Date();
+  const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const all = [];
+  try {
+    await Promise.all(calendars.map(async c => {
+      const snap = await getDocs(collection(db, 'calendars', c.id, 'events'));
+      snap.forEach(d => {
+        const data = d.data();
+        expandRecurrence(data).forEach(occ => {
+          if (occ.start >= now && occ.start <= in7Days) {
+            all.push({ id: d.id, calendar: c, title: data.title || '', allDay: !!data.allDay, start: occ.start, note: data.note, location: data.location, assignee: data.assignee, raw: data });
+          }
+        });
+      });
+    }));
+  } catch (err) {
+    evEl.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+    return;
+  }
+  all.sort((a, b) => a.start - b.start);
+  if (!all.length) {
+    evEl.innerHTML = `<div class="empty" style="padding:1rem;"><p>Keine Termine in den nächsten 7 Tagen.</p></div>`;
+    return;
+  }
+  const emailsByHh = {};
+  households.forEach(h => { emailsByHh[h.id] = h.memberEmails || {}; });
+  evEl.innerHTML = `<div class="event-list">${all.slice(0, 30).map(e => {
+    const emails = e.calendar.householdId ? (emailsByHh[e.calendar.householdId] || {}) : {};
+    const assigneeName = e.assignee ? shortName(emails[e.assignee] || '') : '';
+    return `
+    <div class="event-row" data-cal="${e.calendar.id}" data-date="${e.start.toISOString()}">
+      <div class="event-date">
+        <div class="event-day">${e.start.getDate()}</div>
+        <div class="event-month">${e.start.toLocaleDateString('de-DE', { month: 'short' })}</div>
+      </div>
+      <div class="event-body">
+        <div class="event-title">
+          <span class="color-dot" style="background:${escapeHtml(e.calendar.color)};"></span>
+          ${escapeHtml(e.title)}
+        </div>
+        <div class="event-meta">
+          ${e.allDay ? 'Ganztägig' : e.start.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr'}
+          · ${escapeHtml(e.calendar.name)}
+          ${e.location ? ' · 📍 ' + escapeHtml(e.location) : ''}
+          ${assigneeName ? ' · 👤 ' + escapeHtml(assigneeName) : ''}
+        </div>
+      </div>
+    </div>
+    `;
+  }).join('')}</div>`;
+  evEl.querySelectorAll('.event-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const c = calendars.find(x => x.id === row.dataset.cal);
+      if (!c) return;
+      openCalendar(c);
+      const target = new Date(row.dataset.date);
+      setTimeout(() => { if (fcInstance) fcInstance.gotoDate(target); }, 60);
+    });
+  });
 }
 
 function renderHouseholdCards() {
@@ -1602,6 +1742,16 @@ function openEventModal(cal, existing, canEdit = true) {
         <input type="${allDay ? 'date' : 'datetime-local'}" id="ev-end" value="${endDefault}" ${canEdit ? '' : 'disabled'} />
       </div>
       <div class="field">
+        <label>Ort (optional)</label>
+        <input type="text" id="ev-location" value="${escapeHtml(existing?.location || '')}" ${canEdit ? '' : 'disabled'} placeholder="z.B. Zuhause, Zahnarzt, ..." />
+      </div>
+      <div class="field">
+        <label>Wer (optional)</label>
+        <select id="ev-assignee" ${canEdit ? '' : 'disabled'}>
+          <option value="">— nicht zugewiesen —</option>
+        </select>
+      </div>
+      <div class="field">
         <label>Wiederholung</label>
         <select id="ev-recurrence" ${canEdit ? '' : 'disabled'}>
           <option value="none">Keine</option>
@@ -1609,6 +1759,17 @@ function openEventModal(cal, existing, canEdit = true) {
           <option value="weekly">Wöchentlich</option>
           <option value="monthly">Monatlich</option>
           <option value="yearly">Jährlich (z.B. Geburtstag)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Erinnerung (lokal — Browser muss offen sein)</label>
+        <select id="ev-reminder" ${canEdit ? '' : 'disabled'}>
+          <option value="0">Keine</option>
+          <option value="5">5 Minuten vorher</option>
+          <option value="15">15 Minuten vorher</option>
+          <option value="30">30 Minuten vorher</option>
+          <option value="60">1 Stunde vorher</option>
+          <option value="1440">1 Tag vorher</option>
         </select>
       </div>
       <div class="field">
@@ -1625,6 +1786,19 @@ function openEventModal(cal, existing, canEdit = true) {
   document.body.appendChild(overlay);
   if (canEdit) $('ev-title').focus();
   $('ev-recurrence').value = existing?.recurrence || 'none';
+  $('ev-reminder').value = String(existing?.reminderMinutes || 0);
+
+  // Assignee-Dropdown mit Mitgliedern befüllen (Haushalt, sonst nur ich)
+  const assigneeSel = $('ev-assignee');
+  const hh = cal.householdId ? households.find(h => h.id === cal.householdId) : null;
+  const emails = hh?.memberEmails || { [currentUser.uid]: currentUser.email };
+  Object.entries(emails).forEach(([uid, email]) => {
+    const opt = document.createElement('option');
+    opt.value = uid;
+    opt.textContent = shortName(email);
+    if (existing?.assignee === uid) opt.selected = true;
+    assigneeSel.appendChild(opt);
+  });
 
   const allDayCheckbox = $('ev-allday');
   allDayCheckbox?.addEventListener('change', () => {
@@ -1655,6 +1829,15 @@ function openEventModal(cal, existing, canEdit = true) {
 
       const btn = $('save-btn');
       btn.disabled = true;
+      const reminderMinutes = parseInt($('ev-reminder').value, 10) || 0;
+      const location = $('ev-location').value.trim();
+      const assignee = $('ev-assignee').value || null;
+
+      // Notification-Permission einholen, wenn Reminder gewünscht
+      if (reminderMinutes > 0 && 'Notification' in window && Notification.permission === 'default') {
+        try { await Notification.requestPermission(); } catch {}
+      }
+
       try {
         const payload = {
           title,
@@ -1662,7 +1845,10 @@ function openEventModal(cal, existing, canEdit = true) {
           end: Timestamp.fromDate(end),
           allDay: isAllDay,
           note,
+          location,
+          assignee,
           recurrence: $('ev-recurrence').value || 'none',
+          reminderMinutes,
           updatedAt: serverTimestamp()
         };
         if (isNew) {
@@ -1751,6 +1937,49 @@ function retreat(d, rec) {
   else if (rec === 'weekly') d.setDate(d.getDate() - 7);
   else if (rec === 'monthly') d.setMonth(d.getMonth() - 1);
   else if (rec === 'yearly') d.setFullYear(d.getFullYear() - 1);
+}
+
+// ── Lokale Erinnerungen ───────────────────────────────────────
+async function scheduleAllReminders() {
+  reminderTimers.forEach(id => clearTimeout(id));
+  reminderTimers.clear();
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+  const now = Date.now();
+  const horizon = now + 24 * 60 * 60 * 1000; // nächste 24 Stunden
+
+  for (const cal of calendars) {
+    let snap;
+    try { snap = await getDocs(collection(db, 'calendars', cal.id, 'events')); }
+    catch { continue; }
+    snap.forEach(d => {
+      const data = d.data();
+      const mins = data.reminderMinutes || 0;
+      if (!mins) return;
+      expandRecurrence(data).forEach(occ => {
+        const remindAt = occ.start.getTime() - mins * 60 * 1000;
+        if (remindAt > now && remindAt < horizon) {
+          const delay = remindAt - now;
+          const id = setTimeout(() => showLocalNotification(cal, data, occ), delay);
+          reminderTimers.add(id);
+        }
+      });
+    });
+  }
+}
+
+function showLocalNotification(cal, data, occ) {
+  try {
+    const timeStr = data.allDay
+      ? 'heute'
+      : occ.start.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+    const body = [timeStr, data.location, cal.name].filter(Boolean).join(' · ');
+    new Notification(data.title || 'Termin', {
+      body,
+      icon: './logo.svg',
+      tag: `event-${cal.id}-${occ.start.getTime()}`
+    });
+  } catch (e) { console.warn('notification failed', e); }
 }
 
 function tsToDate(ts) {

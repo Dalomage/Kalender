@@ -296,6 +296,93 @@ input, select, textarea { font-family: inherit; }
   color: var(--primary);
 }
 
+/* ── Home-Tabs ── */
+.home-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg2);
+  padding: 4px;
+  border-radius: 10px;
+  margin: 1.5rem 0 1rem;
+}
+.home-tabs button {
+  flex: 1;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.home-tabs button:hover { color: var(--text); }
+.home-tabs button.active {
+  background: var(--surface);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* ── Dashboard Event-Liste ── */
+.event-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.event-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.event-row:last-child { border-bottom: 0; }
+.event-row:hover { background: var(--surface2); }
+.event-date {
+  flex: 0 0 auto;
+  width: 48px;
+  text-align: center;
+  background: var(--bg2);
+  border-radius: 8px;
+  padding: 4px 0;
+}
+.event-day {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--primary);
+  line-height: 1;
+}
+.event-month {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 2px;
+}
+.event-body { flex: 1; min-width: 0; }
+.event-title {
+  font-size: 0.95rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.event-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .list-items {
   background: var(--surface);
   border: 1px solid var(--border);
