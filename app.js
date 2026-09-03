@@ -346,7 +346,15 @@ function renderCurrent() {
     const fresh = households.find(h => h.id === currentHousehold?.id);
     if (!fresh) { goHome(); return; }
     currentHousehold = fresh;
-    renderHousehold();
+    // Wenn Tab-Bar schon aufgebaut ist, nur den Tab-Inhalt neu rendern —
+    // sonst rennen mehrere Dashboard-Fetches parallel und überschreiben sich
+    if (document.querySelector('[data-hhtab]')) {
+      const myRole = fresh.members?.[currentUser.uid];
+      const isOwner = myRole === 'owner';
+      renderHouseholdTab(fresh, isOwner);
+    } else {
+      renderHousehold();
+    }
   } else if (view === 'calendar') {
     const fresh = calendars.find(c => c.id === currentCalendar?.id);
     if (!fresh) { goHome(); return; }
@@ -530,6 +538,7 @@ function renderListsTab(content) {
 // ── Dashboard (allgemein, gefiltert nach Scope) ───────────────
 // scope: null = nur persönlich (Home), oder ein Haushalt-Objekt = nur dessen Content
 let dashboardClockTimer = null;
+let dashboardRenderToken = 0;
 function updateDashboardClock() {
   const el = document.getElementById('dash-clock-time');
   const dateEl = document.getElementById('dash-clock-date');
@@ -545,6 +554,7 @@ function updateDashboardClock() {
 }
 
 async function renderDashboard(content, scope = null) {
+  const myToken = ++dashboardRenderToken;
   const scopeFilter = scope
     ? (item) => item.householdId === scope.id
     : (item) => !item.householdId;
@@ -625,7 +635,6 @@ async function renderDashboard(content, scope = null) {
   }
 
   // Kommende Termine — Kalender im Scope
-  const evEl = $('dash-events');
   const now = new Date();
   const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const all = [];
@@ -642,9 +651,16 @@ async function renderDashboard(content, scope = null) {
       });
     }));
   } catch (err) {
-    evEl.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+    if (myToken === dashboardRenderToken) {
+      const evEl = $('dash-events');
+      if (evEl) evEl.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+    }
     return;
   }
+  // Zwischenzeitlich neuer Render? Dann Ergebnis verwerfen.
+  if (myToken !== dashboardRenderToken) return;
+  const evEl = $('dash-events');
+  if (!evEl) return;
   all.sort((a, b) => a.start - b.start);
   if (!all.length) {
     evEl.innerHTML = `<div class="empty" style="padding:1rem;"><p>Keine Termine in den nächsten 7 Tagen.</p></div>`;
