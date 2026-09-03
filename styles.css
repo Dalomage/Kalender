@@ -722,12 +722,32 @@ input, select, textarea { font-family: inherit; }
   flex-wrap: wrap;
 }
 .color-swatch {
-  width: 32px; height: 32px;
+  width: 36px; height: 36px;
   border-radius: 50%;
-  border: 3px solid transparent;
+  border: 2px solid var(--border);
   cursor: pointer;
+  position: relative;
+  transition: transform 0.12s, box-shadow 0.12s;
 }
-.color-swatch.selected { border-color: var(--text); }
+.color-swatch:hover { transform: scale(1.08); }
+.color-swatch.selected {
+  transform: scale(1.15);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary), 0 0 0 5px var(--surface);
+}
+.color-swatch.selected::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1a1a1a;
+  font-weight: 900;
+  font-size: 1.1rem;
+  text-shadow: 0 0 3px rgba(255,255,255,0.9);
+  pointer-events: none;
+}
 
 /* ── FullCalendar Anpassungen fürs Dark-Theme ── */
 #fc-container {

@@ -1962,7 +1962,7 @@ function openNoteModal(existing, preselectedHousehold) {
         <label>Farbe</label>
         <div class="color-picker">
           ${NOTE_COLORS.map(c => `
-            <div class="color-swatch ${selectedColor === c ? 'selected' : ''}" data-color="${c}" style="background:${c};border-color:transparent;"></div>
+            <div class="color-swatch ${selectedColor === c ? 'selected' : ''}" data-color="${c}" style="background:${c};"></div>
           `).join('')}
         </div>
       </div>
