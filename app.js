@@ -764,12 +764,11 @@ function renderHousehold() {
 function renderMembers(hh, canEdit) {
   const el = $('members');
   const entries = Object.entries(hh.members || {});
-  const emails = hh.memberEmails || {};
   el.innerHTML = `<div class="member-list">${entries.map(([uid, role]) => `
     <div class="member-row">
       <div>
         <div class="member-name">${escapeHtml(nameFor(uid))}</div>
-        <div class="member-role">${role === 'owner' ? 'Owner' : 'Mitglied'}${emails[uid] ? ' · ' + escapeHtml(emails[uid]) : ''}</div>
+        <div class="member-role">${role === 'owner' ? 'Owner' : 'Mitglied'}</div>
       </div>
       ${canEdit && uid !== currentUser.uid && role !== 'owner' ? `
         <button class="btn btn-secondary btn-small" data-remove-uid="${uid}">Entfernen</button>
