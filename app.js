@@ -58,7 +58,8 @@ let fcInstance = null;
 
 // aktuelle Ansicht: 'home' | 'household' | 'calendar' | 'list'
 let view = 'home';
-let homeTab = 'dashboard'; // 'dashboard' | 'calendars' | 'lists'
+let homeTab = 'dashboard'; // 'dashboard' | 'calendars' | 'lists' | 'notes'
+let householdTab = 'dashboard'; // 'dashboard' | 'calendars' | 'lists' | 'notes' | 'members'
 let currentHousehold = null;
 let currentCalendar = null;
 let currentList = null;
@@ -526,11 +527,38 @@ function renderListsTab(content) {
   renderListCards($('personal-lists'), personalLists, 'Noch keine persönliche Liste. Anlegen z.B. für eigene To-Dos.');
 }
 
-// ── Dashboard ─────────────────────────────────────────────────
-async function renderDashboard(content) {
-  const openLists = lists.filter(l => (l.openCount || 0) > 0)
+// ── Dashboard (allgemein, gefiltert nach Scope) ───────────────
+// scope: null = nur persönlich (Home), oder ein Haushalt-Objekt = nur dessen Content
+async function renderDashboard(content, scope = null) {
+  const scopeFilter = scope
+    ? (item) => item.householdId === scope.id
+    : (item) => !item.householdId;
+
+  const scopeLists = lists.filter(scopeFilter);
+  const scopeCals = calendars.filter(scopeFilter);
+  const scopeNotes = notes.filter(scopeFilter);
+  const openLists = scopeLists.filter(l => (l.openCount || 0) > 0)
     .sort((a, b) => (b.openCount || 0) - (a.openCount || 0));
-  const favNotes = notes.filter(n => n.favorite);
+  const favNotes = scopeNotes.filter(n => n.favorite);
+
+  // Wenn Home-Dashboard (persönlich) und komplett leer: Hinweis auf Haushalte
+  if (!scope && !scopeCals.length && !scopeLists.length && !scopeNotes.length) {
+    if (households.length) {
+      content.innerHTML = `
+        <div class="empty" style="padding:2rem;text-align:center;">
+          <p style="margin-bottom:1rem;">Du hast noch keine <b>persönlichen</b> Kalender, Listen oder Notizen.</p>
+          <p style="color:var(--muted);font-size:0.9rem;">Alle Inhalte deiner Haushalte findest du oben unter „Haushalte" — Dashboard, Kalender, Listen und Notizen pro Haushalt.</p>
+        </div>
+      `;
+    } else {
+      content.innerHTML = `
+        <div class="empty" style="padding:2rem;text-align:center;">
+          <p>Noch nichts angelegt. Fang mit einem <b>Haushalt</b> oben an — dort teilst du Kalender und Listen mit anderen.</p>
+        </div>
+      `;
+    }
+    return;
+  }
 
   content.innerHTML = `
     ${favNotes.length ? `
@@ -572,13 +600,13 @@ async function renderDashboard(content) {
     });
   }
 
-  // Kommende Termine — alle Kalender in Firestore abfragen
+  // Kommende Termine — Kalender im Scope
   const evEl = $('dash-events');
   const now = new Date();
   const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const all = [];
   try {
-    await Promise.all(calendars.map(async c => {
+    await Promise.all(scopeCals.map(async c => {
       const snap = await getDocs(collection(db, 'calendars', c.id, 'events'));
       snap.forEach(d => {
         const data = d.data();
@@ -761,7 +789,6 @@ function renderHousehold() {
   const hh = currentHousehold;
   const myRole = hh.members?.[currentUser.uid];
   const isOwner = myRole === 'owner';
-  const hhCals = calendars.filter(c => c.householdId === hh.id);
 
   appEl.innerHTML = `
     ${topbarHtml(`
@@ -769,29 +796,69 @@ function renderHousehold() {
       <span class="topbar-cal"><span style="font-size:1.2em;">🏠</span> ${escapeHtml(hh.name)}</span>
     `)}
     <main class="content">
+      <div class="home-tabs">
+        <button data-hhtab="dashboard" class="${householdTab === 'dashboard' ? 'active' : ''}">📊 Dashboard</button>
+        <button data-hhtab="calendars" class="${householdTab === 'calendars' ? 'active' : ''}">📅 Kalender</button>
+        <button data-hhtab="lists" class="${householdTab === 'lists' ? 'active' : ''}">📝 Listen</button>
+        <button data-hhtab="notes" class="${householdTab === 'notes' ? 'active' : ''}">📌 Notizen</button>
+        <button data-hhtab="members" class="${householdTab === 'members' ? 'active' : ''}">👥 Mitglieder</button>
+      </div>
+      <div id="hh-tab-content"></div>
+    </main>
+  `;
+  wireLogout();
+  $('back-btn').addEventListener('click', goHome);
+  appEl.querySelectorAll('[data-hhtab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      householdTab = btn.dataset.hhtab;
+      renderHousehold();
+    });
+  });
+  renderHouseholdTab(hh, isOwner);
+}
+
+function renderHouseholdTab(hh, isOwner) {
+  const content = $('hh-tab-content');
+  if (!content) return;
+  if (householdTab === 'dashboard') {
+    renderDashboard(content, hh);
+  } else if (householdTab === 'calendars') {
+    content.innerHTML = `
+      <div class="section-title">
+        <span>Kalender in diesem Haushalt</span>
+        <button class="btn btn-small" id="new-hh-cal-btn">+ Neuer Kalender</button>
+      </div>
+      <div id="hh-cals"></div>
+    `;
+    $('new-hh-cal-btn').addEventListener('click', () => openNewCalendarModal(hh));
+    renderHhCals(calendars.filter(c => c.householdId === hh.id));
+  } else if (householdTab === 'lists') {
+    content.innerHTML = `
+      <div class="section-title">
+        <span>Listen in diesem Haushalt</span>
+        <button class="btn btn-small" id="new-hh-list-btn">+ Neue Liste</button>
+      </div>
+      <div id="hh-lists"></div>
+    `;
+    $('new-hh-list-btn').addEventListener('click', () => openNewListModal(hh));
+    renderListCards($('hh-lists'), lists.filter(l => l.householdId === hh.id), 'Noch keine Liste in diesem Haushalt.');
+  } else if (householdTab === 'notes') {
+    content.innerHTML = `
+      <div class="section-title">
+        <span>Notizen im Haushalt</span>
+        <button class="btn btn-small" id="new-hh-note-btn">+ Neue Notiz</button>
+      </div>
+      <div id="hh-notes"></div>
+    `;
+    $('new-hh-note-btn').addEventListener('click', () => openNoteModal(null, hh));
+    renderNoteCards($('hh-notes'), notes.filter(n => n.householdId === hh.id), 'Noch keine Notiz in diesem Haushalt.');
+  } else if (householdTab === 'members') {
+    content.innerHTML = `
       <div class="section-title">
         <span>Mitglieder</span>
         ${isOwner ? '<button class="btn btn-small" id="invite-btn">🔗 Einladungscodes</button>' : ''}
       </div>
       <div id="members"></div>
-
-      <div class="section-title" style="margin-top:2rem;">
-        <span>Kalender in diesem Haushalt</span>
-        <button class="btn btn-small" id="new-hh-cal-btn">+ Neuer Kalender</button>
-      </div>
-      <div id="hh-cals"></div>
-
-      <div class="section-title" style="margin-top:2rem;">
-        <span>Listen in diesem Haushalt</span>
-        <button class="btn btn-small" id="new-hh-list-btn">+ Neue Liste</button>
-      </div>
-      <div id="hh-lists"></div>
-
-      <div class="section-title" style="margin-top:2rem;">
-        <span>📌 Notizen im Haushalt</span>
-        <button class="btn btn-small" id="new-hh-note-btn">+ Neue Notiz</button>
-      </div>
-      <div id="hh-notes"></div>
 
       ${isOwner ? `
         <div style="margin-top:3rem;text-align:right;">
@@ -802,24 +869,15 @@ function renderHousehold() {
           <button class="btn btn-secondary btn-small" id="leave-hh-btn">Haushalt verlassen</button>
         </div>
       `}
-    </main>
-  `;
-  wireLogout();
-  $('back-btn').addEventListener('click', goHome);
-  if (isOwner) {
-    $('invite-btn').addEventListener('click', () => openInviteModal(hh));
-    $('delete-hh-btn').addEventListener('click', () => confirmDeleteHousehold(hh));
-  } else {
-    $('leave-hh-btn').addEventListener('click', () => confirmLeaveHousehold(hh));
+    `;
+    if (isOwner) {
+      $('invite-btn').addEventListener('click', () => openInviteModal(hh));
+      $('delete-hh-btn').addEventListener('click', () => confirmDeleteHousehold(hh));
+    } else {
+      $('leave-hh-btn').addEventListener('click', () => confirmLeaveHousehold(hh));
+    }
+    renderMembers(hh, isOwner);
   }
-  $('new-hh-cal-btn').addEventListener('click', () => openNewCalendarModal(hh));
-  $('new-hh-list-btn').addEventListener('click', () => openNewListModal(hh));
-  $('new-hh-note-btn').addEventListener('click', () => openNoteModal(null, hh));
-
-  renderMembers(hh, isOwner);
-  renderHhCals(hhCals);
-  renderListCards($('hh-lists'), lists.filter(l => l.householdId === hh.id), 'Noch keine Liste in diesem Haushalt.');
-  renderNoteCards($('hh-notes'), notes.filter(n => n.householdId === hh.id), 'Noch keine Notiz in diesem Haushalt.');
 }
 
 function renderMembers(hh, canEdit) {
