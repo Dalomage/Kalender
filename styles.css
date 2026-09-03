@@ -825,10 +825,13 @@ input, select, textarea { font-family: inherit; }
   inset: 0;
   background: rgba(0,0,0,0.6);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 1rem;
   z-index: 100;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 .modal {
   background: var(--surface);
@@ -837,6 +840,11 @@ input, select, textarea { font-family: inherit; }
   padding: 1.5rem;
   width: 100%;
   max-width: 420px;
+  margin: auto 0;
+}
+@media (max-width: 640px) {
+  .modal-overlay { padding: 0.5rem; }
+  .modal { padding: 1.15rem; }
 }
 .modal h2 { font-size: 1.15rem; margin-bottom: 1rem; }
 .modal-actions {
