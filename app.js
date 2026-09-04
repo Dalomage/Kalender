@@ -3,7 +3,9 @@ import { firebaseConfig } from './firebase-config.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js';
 import {
   getAuth, onAuthStateChanged,
-  signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
+  signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  sendPasswordResetEmail, updatePassword, updateEmail,
+  EmailAuthProvider, reauthenticateWithCredential
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js';
 import {
   getFirestore, collection, query, where, onSnapshot, getDocs, getDoc,
@@ -458,6 +460,9 @@ function renderLogin() {
         </div>
         <button type="submit" class="btn" id="submit-btn">Anmelden</button>
       </form>
+      <div class="login-footer">
+        <button type="button" class="login-link" id="forgot-btn">Passwort vergessen?</button>
+      </div>
     </div>
   `;
 
@@ -475,6 +480,11 @@ function renderLogin() {
     passInput.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
     showMsg('');
   }));
+
+  $('forgot-btn').addEventListener('click', () => {
+    const prefill = $('in-email').value.trim();
+    openPasswordResetModal(prefill);
+  });
 
   $('login-form').addEventListener('submit', async e => {
     e.preventDefault();
@@ -514,9 +524,153 @@ function friendlyAuthError(code) {
     'auth/wrong-password': 'Passwort falsch.',
     'auth/email-already-in-use': 'Diese E-Mail wird bereits verwendet.',
     'auth/weak-password': 'Passwort zu kurz (mindestens 6 Zeichen).',
+    'auth/requires-recent-login': 'Bitte kurz neu anmelden — dann funktioniert es.',
     'auth/network-request-failed': 'Keine Verbindung — Internet prüfen.'
   };
   return map[code] || `Fehler: ${code}`;
+}
+
+function openPasswordResetModal(prefillEmail = '') {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Passwort zurücksetzen</h2>
+      <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">
+        Gib deine E-Mail ein — du bekommst eine Nachricht mit Link zum Zurücksetzen.
+      </p>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>E-Mail</label>
+        <input type="email" id="pr-email" value="${escapeHtml(prefillEmail)}" autocomplete="email" required />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn" id="send-btn">Reset-Mail senden</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  $('pr-email').focus();
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  $('send-btn').addEventListener('click', async () => {
+    const email = $('pr-email').value.trim().toLowerCase();
+    if (!email) return;
+    const btn = $('send-btn');
+    btn.disabled = true;
+    try {
+      await sendPasswordResetEmail(auth, email);
+      overlay.remove();
+      showToast('Reset-Mail wurde verschickt — bitte E-Mails prüfen (auch Spam-Ordner)', { type: 'success', duration: 6000 });
+    } catch (err) {
+      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(friendlyAuthError(err.code))}</div>`;
+      btn.disabled = false;
+    }
+  });
+}
+
+function openChangePasswordModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Passwort ändern</h2>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Aktuelles Passwort</label>
+        <input type="password" id="cp-old" autocomplete="current-password" required />
+      </div>
+      <div class="field">
+        <label>Neues Passwort</label>
+        <input type="password" id="cp-new" autocomplete="new-password" required minlength="6" />
+      </div>
+      <div class="field">
+        <label>Wiederholen</label>
+        <input type="password" id="cp-new2" autocomplete="new-password" required minlength="6" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn" id="save-btn">Speichern</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  $('cp-old').focus();
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  $('save-btn').addEventListener('click', async () => {
+    const oldPw = $('cp-old').value;
+    const newPw = $('cp-new').value;
+    const newPw2 = $('cp-new2').value;
+    const errBox = $('modal-msg');
+    if (newPw.length < 6) { errBox.innerHTML = `<div class="msg msg-error">Neues Passwort muss mindestens 6 Zeichen haben.</div>`; return; }
+    if (newPw !== newPw2) { errBox.innerHTML = `<div class="msg msg-error">Passwörter stimmen nicht überein.</div>`; return; }
+    const btn = $('save-btn');
+    btn.disabled = true;
+    try {
+      const cred = EmailAuthProvider.credential(currentUser.email, oldPw);
+      await reauthenticateWithCredential(currentUser, cred);
+      await updatePassword(currentUser, newPw);
+      overlay.remove();
+      showToast('Passwort geändert', { type: 'success' });
+    } catch (err) {
+      errBox.innerHTML = `<div class="msg msg-error">${escapeHtml(friendlyAuthError(err.code))}</div>`;
+      btn.disabled = false;
+    }
+  });
+}
+
+function openChangeEmailModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>E-Mail ändern</h2>
+      <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">
+        Aktuell: <b>${escapeHtml(currentUser.email)}</b><br>
+        Zur Sicherheit brauchst du dein aktuelles Passwort.
+      </p>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Aktuelles Passwort</label>
+        <input type="password" id="ce-pw" autocomplete="current-password" required />
+      </div>
+      <div class="field">
+        <label>Neue E-Mail</label>
+        <input type="email" id="ce-email" autocomplete="email" required />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn" id="save-btn">Ändern</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  $('ce-pw').focus();
+  $('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  $('save-btn').addEventListener('click', async () => {
+    const pw = $('ce-pw').value;
+    const email = $('ce-email').value.trim().toLowerCase();
+    if (!email) return;
+    const btn = $('save-btn');
+    btn.disabled = true;
+    try {
+      const cred = EmailAuthProvider.credential(currentUser.email, pw);
+      await reauthenticateWithCredential(currentUser, cred);
+      await updateEmail(currentUser, email);
+      // users/{uid} email-Feld mitziehen
+      await setDoc(doc(db, 'users', currentUser.uid), { email }, { merge: true });
+      myProfile.email = email;
+      overlay.remove();
+      showToast('E-Mail geändert', { type: 'success' });
+      renderCurrent();
+    } catch (err) {
+      $('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(friendlyAuthError(err.code))}</div>`;
+      btn.disabled = false;
+    }
+  });
 }
 
 // ── Rendering-Router ──────────────────────────────────────────
@@ -604,8 +758,15 @@ function openProfileModal() {
         <input type="text" id="pf-name" value="${escapeHtml(myProfile?.name || '')}" maxlength="40" />
       </div>
       <div class="field">
-        <label>E-Mail (kann nicht geändert werden)</label>
-        <input type="text" value="${escapeHtml(currentUser.email)}" disabled />
+        <label>E-Mail</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="text" value="${escapeHtml(currentUser.email)}" disabled style="flex:1;" />
+          <button type="button" class="btn btn-secondary btn-small" id="pf-change-email">Ändern</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Passwort</label>
+        <button type="button" class="btn btn-secondary btn-small" id="pf-change-pw">🔒 Passwort ändern</button>
       </div>
       <div class="field">
         <label>Design</label>
@@ -629,6 +790,9 @@ function openProfileModal() {
   $('pf-name').focus();
   $('cancel-btn').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  $('pf-change-pw').addEventListener('click', openChangePasswordModal);
+  $('pf-change-email').addEventListener('click', openChangeEmailModal);
 
   // Live-Preview: Theme sofort anwenden während Auswahl
   $('pf-theme').addEventListener('change', () => applyTheme($('pf-theme').value, $('pf-kids').checked, $('pf-weekday').checked));

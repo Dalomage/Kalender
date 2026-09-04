@@ -1135,6 +1135,23 @@ body.weekday-accents .event-row[data-weekday="0"] { border-left-color: #ec4899; 
 .msg-error { background: rgba(239,68,68,0.12); color: var(--danger); border: 1px solid rgba(239,68,68,0.3); }
 .msg-success { background: rgba(34,197,94,0.12); color: var(--success); border: 1px solid rgba(34,197,94,0.3); }
 
+.login-footer {
+  margin-top: 1rem;
+  text-align: center;
+}
+.login-link {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-decoration: underline;
+  font-family: inherit;
+}
+.login-link:hover { color: var(--primary); }
+
 /* ── Main App ── */
 #app { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar {
