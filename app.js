@@ -74,10 +74,30 @@ const userCache = new Map();
 let myProfile = null;
 
 // ── Auth-State ────────────────────────────────────────────────
+const SESSION_MAX_DAYS = 30;
+const SESSION_KEY = 'kalender_session_start';
+
 onAuthStateChanged(auth, async user => {
   loadingEl.classList.add('hidden');
   currentUser = user;
   if (user) {
+    // Session-Ablauf prüfen: bei über 30 Tagen zwangsweise abmelden
+    let startAt = 0;
+    try { startAt = parseInt(localStorage.getItem(SESSION_KEY) || '0', 10); } catch {}
+    const now = Date.now();
+    if (!startAt) {
+      // Erstes Sehen dieser Session (z.B. gerade eingeloggt oder Upgrade nach Feature) → jetzt anlegen
+      try { localStorage.setItem(SESSION_KEY, String(now)); } catch {}
+      startAt = now;
+    }
+    const ageDays = (now - startAt) / (24 * 60 * 60 * 1000);
+    if (ageDays > SESSION_MAX_DAYS) {
+      try { localStorage.removeItem(SESSION_KEY); } catch {}
+      await signOut(auth);
+      setTimeout(() => showToast('Aus Sicherheit alle 30 Tage neu anmelden — bitte einmal einloggen', { duration: 8000 }), 300);
+      return;
+    }
+
     loginEl.classList.add('hidden');
     appEl.classList.remove('hidden');
     await loadMyProfile();
@@ -502,6 +522,8 @@ function renderLogin() {
           createdAt: serverTimestamp()
         });
       }
+      // Neuer 30-Tage-Session-Timer setzen
+      try { localStorage.setItem(SESSION_KEY, String(Date.now())); } catch {}
     } catch (err) {
       showMsg(friendlyAuthError(err.code), 'error');
       submitBtn.disabled = false;
