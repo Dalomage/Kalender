@@ -1178,6 +1178,11 @@ function renderHouseholdTab(hh, isOwner) {
       <div id="members"></div>
 
       <div class="section-title" style="margin-top:2rem;">
+        <span>📊 Statistiken</span>
+      </div>
+      <div id="stats-panel"><div class="empty" style="padding:1rem;"><p style="color:var(--muted);">Lade …</p></div></div>
+
+      <div class="section-title" style="margin-top:2rem;">
         <span>Letzte Aktivitäten</span>
       </div>
       <div id="activity-log"><div class="empty" style="padding:1rem;"><p style="color:var(--muted);">Lade …</p></div></div>
@@ -1200,6 +1205,7 @@ function renderHouseholdTab(hh, isOwner) {
     }
     renderMembers(hh, isOwner);
     renderActivityLog(hh);
+    renderStats(hh);
   }
 }
 
@@ -3095,6 +3101,123 @@ function timeAgo(date) {
   if (d < 7) return `vor ${d} Tag${d === 1 ? '' : 'en'}`;
   return date.toLocaleDateString('de-DE');
 }
+async function renderStats(hh) {
+  const el = $('stats-panel');
+  if (!el) return;
+  const hhCals = calendars.filter(c => c.householdId === hh.id);
+  const hhLists = lists.filter(l => l.householdId === hh.id);
+  const hhNotes = notes.filter(n => n.householdId === hh.id);
+
+  // Daten sammeln (parallel)
+  try {
+    const [eventsPerCal, itemsPerList] = await Promise.all([
+      Promise.all(hhCals.map(async c => {
+        const snap = await getDocs(collection(db, 'calendars', c.id, 'events'));
+        const events = [];
+        snap.forEach(d => events.push(d.data()));
+        return events;
+      })),
+      Promise.all(hhLists.map(async l => {
+        const snap = await getDocs(collection(db, 'lists', l.id, 'items'));
+        const items = [];
+        snap.forEach(d => items.push(d.data()));
+        return items;
+      }))
+    ]);
+    const allEvents = eventsPerCal.flat();
+    const allItems = itemsPerList.flat();
+
+    // Wer hakt am meisten ab
+    const checkerCount = {};
+    allItems.filter(i => i.done && i.doneBy).forEach(i => {
+      checkerCount[i.doneBy] = (checkerCount[i.doneBy] || 0) + 1;
+    });
+    const checkerTop = Object.entries(checkerCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+    // Kategorien-Verteilung
+    const catCount = {};
+    allEvents.forEach(e => {
+      const c = e.category || 'none';
+      if (c === 'none') return;
+      catCount[c] = (catCount[c] || 0) + 1;
+    });
+    const catTop = Object.entries(catCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const catMax = catTop[0]?.[1] || 1;
+
+    // Häufigste Einkaufs-Items (bereits abgehakt)
+    const itemNameCount = {};
+    allItems.filter(i => i.done).forEach(i => {
+      const key = (i.text || '').toLowerCase().trim();
+      if (!key) return;
+      itemNameCount[key] = (itemNameCount[key] || 0) + 1;
+    });
+    const itemTop = Object.entries(itemNameCount).filter(([, c]) => c > 1).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+    // Uid-Namen sicherstellen
+    ensureNamesFor(checkerTop.map(([uid]) => uid), () => renderStats(hh));
+
+    el.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-num">${allEvents.length}</div>
+          <div class="stat-label">Termine gesamt</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">${hhLists.length}</div>
+          <div class="stat-label">Listen</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">${hhNotes.length}</div>
+          <div class="stat-label">Notizen</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">${allItems.filter(i => i.done).length}</div>
+          <div class="stat-label">Items abgehakt</div>
+        </div>
+      </div>
+
+      ${checkerTop.length ? `
+        <div class="stats-subtitle">🏆 Top-Abhaker</div>
+        <div class="stat-bars">
+          ${checkerTop.map(([uid, n], i) => `
+            <div class="stat-bar-row">
+              <span class="stat-bar-label">${['🥇','🥈','🥉','4️⃣','5️⃣'][i]} ${escapeHtml(nameFor(uid))}</span>
+              <span class="stat-bar-count">${n}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${catTop.length ? `
+        <div class="stats-subtitle">📅 Häufigste Termin-Kategorien</div>
+        <div class="stat-bars">
+          ${catTop.map(([cat, n]) => `
+            <div class="stat-bar-row">
+              <span class="stat-bar-label">${categoryIcon(cat)} ${escapeHtml(EVENT_CATEGORIES.find(c => c.id === cat)?.label || cat)}</span>
+              <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${Math.round(n / catMax * 100)}%"></div></div>
+              <span class="stat-bar-count">${n}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${itemTop.length ? `
+        <div class="stats-subtitle">🛒 Häufig eingekauft / erledigt</div>
+        <div class="stat-bars">
+          ${itemTop.map(([name, n]) => `
+            <div class="stat-bar-row">
+              <span class="stat-bar-label">${escapeHtml(name)}</span>
+              <span class="stat-bar-count">${n}×</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    `;
+  } catch (err) {
+    el.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
 async function renderActivityLog(hh) {
   const el = $('activity-log');
   if (!el) return;
