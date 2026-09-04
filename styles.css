@@ -1,4 +1,4 @@
-:root {
+:root, body[data-theme="dark"] {
   --bg: #0f1419;
   --bg2: #1a2028;
   --surface: #232b36;
@@ -13,17 +13,87 @@
   --radius: 10px;
 }
 
-body.light {
+body[data-theme="light"] {
   --bg: #f8fafc;
   --bg2: #f1f5f9;
   --surface: #ffffff;
-  --surface2: #f8fafc;
+  --surface2: #f1f5f9;
   --border: #cbd5e1;
   --primary: #0d9488;
   --primary-hover: #0f766e;
+  --danger: #dc2626;
+  --success: #16a34a;
   --text: #0f172a;
   --muted: #64748b;
 }
+
+body[data-theme="ocean"] {
+  --bg: #082f49;
+  --bg2: #0c4a6e;
+  --surface: #075985;
+  --surface2: #0369a1;
+  --border: #0284c7;
+  --primary: #06b6d4;
+  --primary-hover: #0891b2;
+  --danger: #f87171;
+  --success: #4ade80;
+  --text: #e0f2fe;
+  --muted: #7dd3fc;
+}
+
+body[data-theme="sunset"] {
+  --bg: #2c0e03;
+  --bg2: #431407;
+  --surface: #5e1a0a;
+  --surface2: #7c2d12;
+  --border: #9a3412;
+  --primary: #fb923c;
+  --primary-hover: #f97316;
+  --danger: #ef4444;
+  --success: #a3e635;
+  --text: #fff7ed;
+  --muted: #fdba74;
+}
+
+body[data-theme="forest"] {
+  --bg: #052e16;
+  --bg2: #14532d;
+  --surface: #166534;
+  --surface2: #15803d;
+  --border: #22c55e;
+  --primary: #4ade80;
+  --primary-hover: #22c55e;
+  --danger: #f87171;
+  --success: #86efac;
+  --text: #f0fdf4;
+  --muted: #86efac;
+}
+
+body[data-theme="rose"] {
+  --bg: #2e0723;
+  --bg2: #4a044e;
+  --surface: #701a75;
+  --surface2: #86198f;
+  --border: #a21caf;
+  --primary: #f472b6;
+  --primary-hover: #ec4899;
+  --danger: #fb7185;
+  --success: #4ade80;
+  --text: #fdf4ff;
+  --muted: #f0abfc;
+}
+
+/* Kinder-Modus: größere Buttons, dickere Ränder */
+body.kids-mode {
+  font-size: 1.1rem;
+}
+body.kids-mode .btn { padding: 14px 20px; font-size: 1.05rem; border-radius: 12px; }
+body.kids-mode .btn-small { padding: 10px 16px; font-size: 0.95rem; }
+body.kids-mode .calendar-card { padding: 1.5rem; border-width: 2px; border-radius: 16px; }
+body.kids-mode .home-tabs button { padding: 14px 18px; font-size: 1rem; }
+body.kids-mode .list-item { padding: 14px 18px; }
+body.kids-mode .item-check input[type="checkbox"] { width: 24px; height: 24px; }
+body.kids-mode .note-card { padding: 20px; font-size: 1.05rem; border-radius: 14px; }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -580,6 +650,16 @@ input, select, textarea { font-family: inherit; }
 .event-row.is-live {
   background: rgba(20,184,166,0.08);
 }
+
+/* Wochentags-Akzente (Toggle im Profil) */
+body.weekday-accents .event-row { border-left: 5px solid transparent; padding-left: 12px; }
+body.weekday-accents .event-row[data-weekday="1"] { border-left-color: #ef4444; } /* Mo rot */
+body.weekday-accents .event-row[data-weekday="2"] { border-left-color: #f59e0b; } /* Di orange */
+body.weekday-accents .event-row[data-weekday="3"] { border-left-color: #eab308; } /* Mi gelb */
+body.weekday-accents .event-row[data-weekday="4"] { border-left-color: #22c55e; } /* Do grün */
+body.weekday-accents .event-row[data-weekday="5"] { border-left-color: #06b6d4; } /* Fr cyan */
+body.weekday-accents .event-row[data-weekday="6"] { border-left-color: #8b5cf6; } /* Sa violett */
+body.weekday-accents .event-row[data-weekday="0"] { border-left-color: #ec4899; } /* So pink */
 .live-badge {
   background: var(--primary);
   color: #fff;
@@ -699,6 +779,26 @@ input, select, textarea { font-family: inherit; }
   color: #f59e0b;
   text-shadow: 0 0 3px rgba(245,158,11,0.5);
 }
+.note-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.note-tag {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  background: rgba(0,0,0,0.15);
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.notes-search-wrap { margin: 0.5rem 0 1rem; }
+.notes-search-wrap input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+.notes-search-wrap input:focus { outline: none; border-color: var(--primary); }
 
 /* ── Dashboard Event-Liste ── */
 .event-list {

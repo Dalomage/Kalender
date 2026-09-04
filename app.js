@@ -250,6 +250,26 @@ function openWeatherLocationModal() {
 }
 
 // ── Nutzerprofile ─────────────────────────────────────────────
+const THEMES = [
+  { id: 'dark',   label: '🌙 Dark Teal (Standard)' },
+  { id: 'light',  label: '☀️ Hell' },
+  { id: 'ocean',  label: '🌊 Ocean' },
+  { id: 'sunset', label: '🌅 Sunset' },
+  { id: 'forest', label: '🌲 Forest' },
+  { id: 'rose',   label: '🌸 Rose' }
+];
+function applyTheme(themeId, kidsMode, weekdayAccents) {
+  document.body.setAttribute('data-theme', themeId || 'dark');
+  document.body.classList.toggle('kids-mode', !!kidsMode);
+  document.body.classList.toggle('weekday-accents', !!weekdayAccents);
+  // theme-color meta für Statusbar aktualisieren
+  const tc = document.querySelector('meta[name="theme-color"]');
+  if (tc) {
+    const map = { dark: '#0d9488', light: '#0d9488', ocean: '#0891b2', sunset: '#f97316', forest: '#22c55e', rose: '#ec4899' };
+    tc.setAttribute('content', map[themeId] || '#0d9488');
+  }
+}
+
 async function loadMyProfile() {
   try {
     const snap = await getDoc(doc(db, 'users', currentUser.uid));
@@ -259,12 +279,16 @@ async function loadMyProfile() {
       email: currentUser.email,
       weatherCity: data.weatherCity || null,
       weatherLat: data.weatherLat || null,
-      weatherLon: data.weatherLon || null
+      weatherLon: data.weatherLon || null,
+      theme: data.theme || 'dark',
+      kidsMode: !!data.kidsMode,
+      weekdayAccents: !!data.weekdayAccents
     };
   } catch {
-    myProfile = { name: currentUser.email.split('@')[0], email: currentUser.email };
+    myProfile = { name: currentUser.email.split('@')[0], email: currentUser.email, theme: 'dark' };
   }
   userCache.set(currentUser.uid, myProfile);
+  applyTheme(myProfile.theme, myProfile.kidsMode, myProfile.weekdayAccents);
 }
 
 async function ensureUserLoaded(uid) {
@@ -570,6 +594,18 @@ function openProfileModal() {
         <label>E-Mail (kann nicht geändert werden)</label>
         <input type="text" value="${escapeHtml(currentUser.email)}" disabled />
       </div>
+      <div class="field">
+        <label>Design</label>
+        <select id="pf-theme">
+          ${THEMES.map(t => `<option value="${t.id}" ${myProfile?.theme === t.id ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field field-inline">
+        <label><input type="checkbox" id="pf-weekday" ${myProfile?.weekdayAccents ? 'checked' : ''} /> 🎨 Wochentage farblich markieren</label>
+      </div>
+      <div class="field field-inline">
+        <label><input type="checkbox" id="pf-kids" ${myProfile?.kidsMode ? 'checked' : ''} /> 👶 Kinder-Modus (größere Buttons, größere Schrift)</label>
+      </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
         <button class="btn" id="save-btn">Speichern</button>
@@ -580,17 +616,31 @@ function openProfileModal() {
   $('pf-name').focus();
   $('cancel-btn').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  // Live-Preview: Theme sofort anwenden während Auswahl
+  $('pf-theme').addEventListener('change', () => applyTheme($('pf-theme').value, $('pf-kids').checked, $('pf-weekday').checked));
+  $('pf-kids').addEventListener('change', () => applyTheme($('pf-theme').value, $('pf-kids').checked, $('pf-weekday').checked));
+  $('pf-weekday').addEventListener('change', () => applyTheme($('pf-theme').value, $('pf-kids').checked, $('pf-weekday').checked));
+
   $('save-btn').addEventListener('click', async () => {
     const name = $('pf-name').value.trim();
     if (!name) { $('modal-msg').innerHTML = `<div class="msg msg-error">Name darf nicht leer sein.</div>`; return; }
+    const theme = $('pf-theme').value;
+    const kidsMode = $('pf-kids').checked;
+    const weekdayAccents = $('pf-weekday').checked;
     const btn = $('save-btn');
     btn.disabled = true;
     try {
       await setDoc(doc(db, 'users', currentUser.uid), {
-        name, email: currentUser.email, updatedAt: serverTimestamp()
+        name, email: currentUser.email, theme, kidsMode, weekdayAccents,
+        updatedAt: serverTimestamp()
       }, { merge: true });
       myProfile.name = name;
+      myProfile.theme = theme;
+      myProfile.kidsMode = kidsMode;
+      myProfile.weekdayAccents = weekdayAccents;
       userCache.set(currentUser.uid, myProfile);
+      applyTheme(theme, kidsMode, weekdayAccents);
       overlay.remove();
       renderCurrent();
     } catch (err) {
@@ -598,6 +648,11 @@ function openProfileModal() {
       btn.disabled = false;
     }
   });
+
+  // Beim Schließen ohne Speichern: Original-Theme wiederherstellen
+  const restoreOnClose = () => applyTheme(myProfile?.theme, myProfile?.kidsMode, myProfile?.weekdayAccents);
+  $('cancel-btn').addEventListener('click', restoreOnClose);
+  overlay.addEventListener('click', e => { if (e.target === overlay) restoreOnClose(); });
 }
 
 // ── Home: Haushalte + persönliche Kalender ────────────────────
@@ -666,6 +721,7 @@ function renderHomeTab() {
   else if (homeTab === 'notes') renderNotesTab(content);
 }
 
+let notesSearchTerm = '';
 function renderNotesTab(content) {
   const personalNotes = notes.filter(n => !n.householdId);
   content.innerHTML = `
@@ -673,10 +729,27 @@ function renderNotesTab(content) {
       <span>Persönliche Notizen</span>
       <button class="btn btn-small" id="new-note-btn">+ Neue Notiz</button>
     </div>
+    <div class="notes-search-wrap">
+      <input type="text" id="notes-search" placeholder="🔍 Suchen: Text oder #tag …" value="${escapeHtml(notesSearchTerm)}" autocomplete="off" />
+    </div>
     <div id="personal-notes"></div>
   `;
   $('new-note-btn').addEventListener('click', () => openNoteModal(null, null));
-  renderNoteCards($('personal-notes'), personalNotes, 'Noch keine persönliche Notiz.');
+  $('notes-search').addEventListener('input', e => {
+    notesSearchTerm = e.target.value;
+    renderNoteCards($('personal-notes'), filterNotes(personalNotes, notesSearchTerm), 'Keine Treffer.');
+  });
+  renderNoteCards($('personal-notes'), filterNotes(personalNotes, notesSearchTerm), 'Noch keine persönliche Notiz.');
+}
+
+function filterNotes(list, term) {
+  const q = (term || '').trim().toLowerCase();
+  if (!q) return list;
+  return list.filter(n => {
+    const inText = (n.text || '').toLowerCase().includes(q);
+    const inTags = (n.tags || []).some(t => ('#' + t).toLowerCase().includes(q) || t.toLowerCase().includes(q));
+    return inText || inTags;
+  });
 }
 
 function renderCalendarsTab(content) {
@@ -858,7 +931,7 @@ async function renderDashboard(content, scope = null) {
   evEl.innerHTML = `<div class="event-list">${all.slice(0, 30).map(e => {
     const assigneeName = e.assignee ? nameFor(e.assignee) : '';
     return `
-    <div class="event-row ${e.live ? 'is-live' : ''}" data-cal="${e.calendar.id}" data-date="${e.start.toISOString()}">
+    <div class="event-row ${e.live ? 'is-live' : ''}" data-cal="${e.calendar.id}" data-date="${e.start.toISOString()}" data-weekday="${e.start.getDay()}">
       <div class="event-date">
         ${e.live ? '<div class="live-badge">JETZT</div>' : `
           <div class="event-day">${e.start.getDate()}</div>
@@ -2126,6 +2199,17 @@ async function toggleItem(list, itemId, done) {
       doneAt: done ? serverTimestamp() : null
     });
     await updateDoc(doc(db, 'lists', list.id), { openCount: increment(done ? -1 : 1) });
+    // Confetti wenn wir das letzte offene Item abgehakt haben
+    if (done) {
+      const openBefore = listItems.filter(i => !i.done && i.id !== itemId).length;
+      if (openBefore === 0 && listItems.length > 0 && typeof confetti !== 'undefined') {
+        setTimeout(() => confetti({
+          particleCount: 120, spread: 80, origin: { y: 0.6 },
+          colors: ['#14b8a6', '#0d9488', '#22c55e', '#a855f7', '#ec4899']
+        }), 100);
+        showToast('Liste geschafft! 🎉', { type: 'success' });
+      }
+    }
   } catch (err) {
     alert('Fehler: ' + err.message);
   }
@@ -2447,10 +2531,14 @@ function renderNoteCards(el, ns, emptyText) {
   el.innerHTML = `<div class="notes-grid">${sorted.map(n => {
     const color = n.color || NOTE_COLORS[0];
     const authorName = n.createdBy ? nameFor(n.createdBy) : '';
+    const tagsHtml = (n.tags || []).length
+      ? `<div class="note-tags">${n.tags.map(t => `<span class="note-tag">#${escapeHtml(t)}</span>`).join('')}</div>`
+      : '';
     return `
       <div class="note-card ${n.favorite ? 'favorite' : ''}" data-note="${n.id}" style="background:${escapeHtml(color)};">
         <button class="note-fav" data-fav="${n.id}" title="${n.favorite ? 'Favorit entfernen' : 'Als Favorit markieren'}">${n.favorite ? '★' : '☆'}</button>
         <div class="note-text">${escapeHtml(n.text || '').replace(/\n/g, '<br>')}</div>
+        ${tagsHtml}
         ${authorName ? `<div class="note-author">— ${escapeHtml(authorName)}</div>` : ''}
       </div>
     `;
@@ -2493,6 +2581,10 @@ function openNoteModal(existing, preselectedHousehold) {
       <div class="field">
         <label>Text</label>
         <textarea id="note-text" rows="6" placeholder="Was möchtest du festhalten?">${escapeHtml(existing?.text || '')}</textarea>
+      </div>
+      <div class="field">
+        <label>Tags (durch Komma trennen, ohne #)</label>
+        <input type="text" id="note-tags" value="${escapeHtml((existing?.tags || []).join(', '))}" placeholder="z.B. einkauf, reisen, wlan" />
       </div>
       <div class="field field-inline">
         <label><input type="checkbox" id="note-fav-cb" ${existing?.favorite ? 'checked' : ''} /> ⭐ Als Favorit — erscheint auch im Dashboard</label>
@@ -2540,12 +2632,15 @@ function openNoteModal(existing, preselectedHousehold) {
     btn.disabled = true;
     try {
       const fav = $('note-fav-cb').checked;
+      const tags = $('note-tags').value
+        .split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean);
       if (isNew) {
         const hhId = $('note-hh').value || null;
         const payload = {
           text,
           color: selectedColor,
           favorite: fav,
+          tags,
           owner: currentUser.uid,
           members: { [currentUser.uid]: 'owner' },
           createdBy: currentUser.uid,
@@ -2557,7 +2652,7 @@ function openNoteModal(existing, preselectedHousehold) {
         logActivity(hhId, 'created', 'note', text.slice(0, 40));
       } else {
         await updateDoc(doc(db, 'notes', existing.id), {
-          text, color: selectedColor, favorite: fav, updatedAt: serverTimestamp()
+          text, color: selectedColor, favorite: fav, tags, updatedAt: serverTimestamp()
         });
       }
       overlay.remove();
