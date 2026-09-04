@@ -3127,13 +3127,6 @@ async function renderStats(hh) {
     const allEvents = eventsPerCal.flat();
     const allItems = itemsPerList.flat();
 
-    // Wer hakt am meisten ab
-    const checkerCount = {};
-    allItems.filter(i => i.done && i.doneBy).forEach(i => {
-      checkerCount[i.doneBy] = (checkerCount[i.doneBy] || 0) + 1;
-    });
-    const checkerTop = Object.entries(checkerCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
     // Kategorien-Verteilung
     const catCount = {};
     allEvents.forEach(e => {
@@ -3152,9 +3145,6 @@ async function renderStats(hh) {
       itemNameCount[key] = (itemNameCount[key] || 0) + 1;
     });
     const itemTop = Object.entries(itemNameCount).filter(([, c]) => c > 1).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-    // Uid-Namen sicherstellen
-    ensureNamesFor(checkerTop.map(([uid]) => uid), () => renderStats(hh));
 
     el.innerHTML = `
       <div class="stats-grid">
@@ -3175,18 +3165,6 @@ async function renderStats(hh) {
           <div class="stat-label">Items abgehakt</div>
         </div>
       </div>
-
-      ${checkerTop.length ? `
-        <div class="stats-subtitle">🏆 Top-Abhaker</div>
-        <div class="stat-bars">
-          ${checkerTop.map(([uid, n], i) => `
-            <div class="stat-bar-row">
-              <span class="stat-bar-label">${['🥇','🥈','🥉','4️⃣','5️⃣'][i]} ${escapeHtml(nameFor(uid))}</span>
-              <span class="stat-bar-count">${n}</span>
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
 
       ${catTop.length ? `
         <div class="stats-subtitle">📅 Häufigste Termin-Kategorien</div>
