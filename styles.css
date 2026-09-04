@@ -83,6 +83,111 @@ body[data-theme="rose"] {
   --muted: #f0abfc;
 }
 
+/* Midnight — tiefdunkles Navy, sehr fokussiert */
+body[data-theme="midnight"] {
+  --bg: #030712;
+  --bg2: #0b1120;
+  --surface: #111827;
+  --surface2: #1e293b;
+  --border: #334155;
+  --primary: #60a5fa;
+  --primary-hover: #3b82f6;
+  --danger: #f87171;
+  --success: #34d399;
+  --text: #f8fafc;
+  --muted: #94a3b8;
+}
+
+/* Nord — populäres nordisches Theme, kühl und dezent */
+body[data-theme="nord"] {
+  --bg: #2e3440;
+  --bg2: #3b4252;
+  --surface: #434c5e;
+  --surface2: #4c566a;
+  --border: #616e88;
+  --primary: #88c0d0;
+  --primary-hover: #81a1c1;
+  --danger: #bf616a;
+  --success: #a3be8c;
+  --text: #eceff4;
+  --muted: #d8dee9;
+}
+
+/* Dracula — beliebtes Coder-Theme, warm dunkles Violett + Cyan */
+body[data-theme="dracula"] {
+  --bg: #282a36;
+  --bg2: #21222c;
+  --surface: #343746;
+  --surface2: #44475a;
+  --border: #6272a4;
+  --primary: #bd93f9;
+  --primary-hover: #8be9fd;
+  --danger: #ff5555;
+  --success: #50fa7b;
+  --text: #f8f8f2;
+  --muted: #f1fa8c;
+}
+
+/* Catppuccin Mocha — modern, weich, sehr beliebt */
+body[data-theme="mocha"] {
+  --bg: #1e1e2e;
+  --bg2: #181825;
+  --surface: #313244;
+  --surface2: #45475a;
+  --border: #585b70;
+  --primary: #cba6f7;
+  --primary-hover: #b4befe;
+  --danger: #f38ba8;
+  --success: #a6e3a1;
+  --text: #cdd6f4;
+  --muted: #a6adc8;
+}
+
+/* Slate — minimalistisch monochrom */
+body[data-theme="slate"] {
+  --bg: #18181b;
+  --bg2: #27272a;
+  --surface: #3f3f46;
+  --surface2: #52525b;
+  --border: #71717a;
+  --primary: #e4e4e7;
+  --primary-hover: #d4d4d8;
+  --danger: #f87171;
+  --success: #86efac;
+  --text: #fafafa;
+  --muted: #a1a1aa;
+}
+
+/* Neon — Cyberpunk, knallig, viel Kontrast */
+body[data-theme="neon"] {
+  --bg: #0a0014;
+  --bg2: #14002b;
+  --surface: #1e0342;
+  --surface2: #2d0568;
+  --border: #6b21a8;
+  --primary: #f0abfc;
+  --primary-hover: #22d3ee;
+  --danger: #f43f5e;
+  --success: #4ade80;
+  --text: #fdf4ff;
+  --muted: #c4b5fd;
+}
+
+/* Sepia — Papier-/Buch-Look, warmer heller Ton */
+body[data-theme="sepia"] {
+  --bg: #f5efe0;
+  --bg2: #ede4cc;
+  --surface: #fffcf5;
+  --surface2: #f0e6cf;
+  --border: #d4c4a1;
+  --primary: #8b6f47;
+  --primary-hover: #6b5535;
+  --danger: #b91c1c;
+  --success: #4d7c0f;
+  --text: #3c2f1e;
+  --muted: #78654b;
+}
+
 /* Kinder-Modus: größere Buttons, dickere Ränder */
 body.kids-mode {
   font-size: 1.1rem;

@@ -251,12 +251,19 @@ function openWeatherLocationModal() {
 
 // ── Nutzerprofile ─────────────────────────────────────────────
 const THEMES = [
-  { id: 'dark',   label: '🌙 Dark Teal (Standard)' },
-  { id: 'light',  label: '☀️ Hell' },
-  { id: 'ocean',  label: '🌊 Ocean' },
-  { id: 'sunset', label: '🌅 Sunset' },
-  { id: 'forest', label: '🌲 Forest' },
-  { id: 'rose',   label: '🌸 Rose' }
+  { id: 'dark',     label: '🌙 Dark Teal (Standard)' },
+  { id: 'light',    label: '☀️ Hell' },
+  { id: 'sepia',    label: '📜 Sepia (Papier)' },
+  { id: 'midnight', label: '🌌 Midnight' },
+  { id: 'nord',     label: '❄️ Nord' },
+  { id: 'dracula',  label: '🧛 Dracula' },
+  { id: 'mocha',    label: '☕ Catppuccin Mocha' },
+  { id: 'slate',    label: '⚫ Slate (Monochrom)' },
+  { id: 'ocean',    label: '🌊 Ocean' },
+  { id: 'sunset',   label: '🌅 Sunset' },
+  { id: 'forest',   label: '🌲 Forest' },
+  { id: 'rose',     label: '🌸 Rose' },
+  { id: 'neon',     label: '💫 Neon Cyber' }
 ];
 function applyTheme(themeId, kidsMode, weekdayAccents) {
   document.body.setAttribute('data-theme', themeId || 'dark');
@@ -265,7 +272,13 @@ function applyTheme(themeId, kidsMode, weekdayAccents) {
   // theme-color meta für Statusbar aktualisieren
   const tc = document.querySelector('meta[name="theme-color"]');
   if (tc) {
-    const map = { dark: '#0d9488', light: '#0d9488', ocean: '#0891b2', sunset: '#f97316', forest: '#22c55e', rose: '#ec4899' };
+    const map = {
+      dark: '#0d9488', light: '#0d9488', ocean: '#0891b2',
+      sunset: '#f97316', forest: '#22c55e', rose: '#ec4899',
+      midnight: '#3b82f6', nord: '#88c0d0', dracula: '#bd93f9',
+      mocha: '#cba6f7', slate: '#71717a', neon: '#f0abfc',
+      sepia: '#8b6f47'
+    };
     tc.setAttribute('content', map[themeId] || '#0d9488');
   }
 }
