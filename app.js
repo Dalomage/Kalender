@@ -45,6 +45,7 @@ let households = [];
 let calendars = [];
 let lists = [];
 let notes = [];
+let records = [];
 const unsubs = {
   households: null,
   calendarsDirect: null,
@@ -53,6 +54,7 @@ const unsubs = {
   listsHousehold: null,
   notesDirect: null,
   notesHousehold: null,
+  recordsHousehold: null,
   events: null,
   items: null
 };
@@ -126,6 +128,7 @@ function stopAll() {
   calendars = [];
   lists = [];
   notes = [];
+  records = [];
   currentHousehold = null;
   currentCalendar = null;
   currentList = null;
@@ -437,11 +440,13 @@ function resubscribeHouseholdCalendars() {
   if (unsubs.calendarsHousehold) { unsubs.calendarsHousehold(); unsubs.calendarsHousehold = null; }
   if (unsubs.listsHousehold) { unsubs.listsHousehold(); unsubs.listsHousehold = null; }
   if (unsubs.notesHousehold) { unsubs.notesHousehold(); unsubs.notesHousehold = null; }
+  if (unsubs.recordsHousehold) { unsubs.recordsHousehold(); unsubs.recordsHousehold = null; }
   const hhIds = households.map(h => h.id);
   if (hhIds.length === 0) {
     calendars = calendars.filter(c => c._source !== 'household');
     lists = lists.filter(l => l._source !== 'household');
     notes = notes.filter(n => n._source !== 'household');
+    records = [];
     return;
   }
   unsubs.calendarsHousehold = onSnapshot(
@@ -458,6 +463,15 @@ function resubscribeHouseholdCalendars() {
     query(collection(db, 'notes'), where('householdId', 'in', hhIds.slice(0, 30))),
     snap => { mergeNotes(snap, 'household'); renderCurrent(); },
     err => console.error('notes household sub failed:', err)
+  );
+  unsubs.recordsHousehold = onSnapshot(
+    query(collection(db, 'records'), where('householdId', 'in', hhIds.slice(0, 30))),
+    snap => {
+      records = [];
+      snap.forEach(d => records.push({ id: d.id, ...d.data() }));
+      renderCurrent();
+    },
+    err => console.error('records household sub failed:', err)
   );
 }
 
@@ -1138,6 +1152,9 @@ async function renderDashboard(content, scope = null) {
   if (favNotes.length) {
     renderNoteCards($('dash-fav-notes'), favNotes, '');
   }
+  if (expiring.length && scope) {
+    renderRecordCards($('dash-expiring'), expiring, scope);
+  }
 
   // Offene Listen sofort
   const lel = $('dash-lists');
@@ -1392,6 +1409,7 @@ function renderHousehold() {
         <button data-hhtab="calendars" class="${householdTab === 'calendars' ? 'active' : ''}">📅 Kalender</button>
         <button data-hhtab="lists" class="${householdTab === 'lists' ? 'active' : ''}">📝 Listen</button>
         <button data-hhtab="notes" class="${householdTab === 'notes' ? 'active' : ''}">📌 Notizen</button>
+        <button data-hhtab="records" class="${householdTab === 'records' ? 'active' : ''}">📁 Akte</button>
         <button data-hhtab="members" class="${householdTab === 'members' ? 'active' : ''}">👥 Mitglieder</button>
       </div>
       <div id="hh-tab-content"></div>
@@ -1433,6 +1451,8 @@ function renderHouseholdTab(hh, isOwner) {
     `;
     $('new-hh-list-btn').addEventListener('click', () => openNewListModal(hh));
     renderListCards($('hh-lists'), lists.filter(l => l.householdId === hh.id), 'Noch keine Liste in diesem Haushalt.');
+  } else if (householdTab === 'records') {
+    renderRecordsTab(content, hh);
   } else if (householdTab === 'notes') {
     content.innerHTML = `
       <div class="section-title">
@@ -2793,6 +2813,225 @@ function formatDate(d, allDay) {
     ? { day: '2-digit', month: '2-digit', year: 'numeric' }
     : { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' };
   return d.toLocaleString('de-DE', opts) + (allDay ? '' : ' Uhr');
+}
+
+// ── Familien-Akte (records) ───────────────────────────────────
+const RECORD_CATEGORIES = [
+  { id: 'insurance',   label: 'Versicherung',      icon: '🛡️' },
+  { id: 'contract',    label: 'Vertrag',           icon: '📄' },
+  { id: 'access',      label: 'Zugangsdaten',      icon: '🔑' },
+  { id: 'contact',     label: 'Wichtiger Kontakt', icon: '☎️' },
+  { id: 'vaccination', label: 'Impfung',           icon: '💉' },
+  { id: 'document',    label: 'Dokument',          icon: '📎' },
+  { id: 'other',       label: 'Sonstiges',         icon: '📂' }
+];
+function recordCategoryInfo(id) {
+  return RECORD_CATEGORIES.find(c => c.id === id) || RECORD_CATEGORIES[RECORD_CATEGORIES.length - 1];
+}
+
+let recordsFilter = 'all';
+function renderRecordsTab(content, hh) {
+  const hhRecords = records.filter(r => r.householdId === hh.id);
+  const catCounts = {};
+  hhRecords.forEach(r => { catCounts[r.category] = (catCounts[r.category] || 0) + 1; });
+
+  const activeChip = cat =>
+    `<button class="cal-filter-chip ${recordsFilter === cat ? 'chip-active' : ''}" data-rec-cat="${cat}">
+      ${cat === 'all' ? '📁 Alle' : recordCategoryInfo(cat).icon + ' ' + escapeHtml(recordCategoryInfo(cat).label)}
+      <span class="chip-count">${cat === 'all' ? hhRecords.length : (catCounts[cat] || 0)}</span>
+    </button>`;
+
+  content.innerHTML = `
+    <div class="section-title">
+      <span>📁 Familien-Akte</span>
+      <button class="btn btn-small" id="new-record-btn">+ Neuer Eintrag</button>
+    </div>
+    <div class="cal-filter-bar" style="margin-bottom:1rem;">
+      ${['all', ...RECORD_CATEGORIES.map(c => c.id)].map(activeChip).join('')}
+    </div>
+    <div id="records-list"></div>
+  `;
+  $('new-record-btn').addEventListener('click', () => openRecordModal(null, hh));
+  content.querySelectorAll('[data-rec-cat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      recordsFilter = btn.dataset.recCat;
+      renderRecordsTab(content, hh);
+    });
+  });
+  const filtered = recordsFilter === 'all' ? hhRecords : hhRecords.filter(r => r.category === recordsFilter);
+  renderRecordCards($('records-list'), filtered, hh);
+}
+
+function renderRecordCards(el, list, hh) {
+  if (!el) return;
+  if (!list.length) {
+    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>Keine Einträge in dieser Kategorie.</p></div>`;
+    return;
+  }
+  const now = Date.now();
+  const sorted = [...list].sort((a, b) => {
+    // Zuerst mit Ablaufdatum, dann nach Titel
+    const ae = a.expiresAt?.seconds ? a.expiresAt.seconds * 1000 : Infinity;
+    const be = b.expiresAt?.seconds ? b.expiresAt.seconds * 1000 : Infinity;
+    if (ae !== be) return ae - be;
+    return (a.title || '').localeCompare(b.title || '');
+  });
+  el.innerHTML = `<div class="records-grid">${sorted.map(r => {
+    const cat = recordCategoryInfo(r.category);
+    let expiryHtml = '';
+    if (r.expiresAt?.seconds) {
+      const days = Math.round((r.expiresAt.seconds * 1000 - now) / (24 * 60 * 60 * 1000));
+      let cls = 'expiry-ok';
+      let text = '';
+      if (days < 0) { cls = 'expiry-past'; text = `abgelaufen vor ${-days} Tagen`; }
+      else if (days === 0) { cls = 'expiry-urgent'; text = `läuft heute ab`; }
+      else if (days <= 30) { cls = 'expiry-urgent'; text = `läuft in ${days} Tagen ab`; }
+      else if (days <= 90) { cls = 'expiry-soon'; text = `läuft in ${days} Tagen ab`; }
+      else { text = `läuft in ${days} Tagen ab`; }
+      expiryHtml = `<div class="record-expiry ${cls}">⏰ ${escapeHtml(text)}</div>`;
+    }
+    return `
+      <div class="record-card" data-rec="${r.id}">
+        <div class="record-header">
+          <span class="record-icon">${cat.icon}</span>
+          <div class="record-title">${escapeHtml(r.title || 'Ohne Titel')}</div>
+        </div>
+        ${r.text ? `<div class="record-text">${escapeHtml(r.text.slice(0, 140))}${r.text.length > 140 ? '…' : ''}</div>` : ''}
+        <div class="record-footer">
+          ${r.personUid ? avatarHtml(r.personUid, 'sm') + '<span class="record-person">' + escapeHtml(nameFor(r.personUid)) + '</span>' : ''}
+          ${r.externalLink ? `<a href="${escapeHtml(r.externalLink)}" target="_blank" rel="noopener noreferrer" class="record-link" onclick="event.stopPropagation()">🔗 Link</a>` : ''}
+        </div>
+        ${expiryHtml}
+      </div>
+    `;
+  }).join('')}</div>`;
+  el.querySelectorAll('[data-rec]').forEach(card => {
+    card.addEventListener('click', () => {
+      const r = records.find(x => x.id === card.dataset.rec);
+      if (r) openRecordModal(r, hh);
+    });
+  });
+  ensureNamesFor(sorted.map(r => r.personUid).filter(Boolean), () => renderRecordCards(el, list, hh));
+}
+
+function openRecordModal(existing, hh) {
+  const isNew = !existing;
+  const memberUids = Object.keys(hh.members || {});
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const expiryValue = existing?.expiresAt?.seconds
+    ? new Date(existing.expiresAt.seconds * 1000).toISOString().slice(0, 10)
+    : '';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>${isNew ? 'Neuer Eintrag' : 'Eintrag bearbeiten'}</h2>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Titel</label>
+        <input type="text" id="rec-title" value="${escapeHtml(existing?.title || '')}" placeholder="z.B. Haftpflicht Allianz" required />
+      </div>
+      <div class="field">
+        <label>Kategorie</label>
+        <select id="rec-category">
+          ${RECORD_CATEGORIES.map(c => `<option value="${c.id}" ${(existing?.category || 'insurance') === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.label)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Notizen / Details</label>
+        <textarea id="rec-text" rows="4" placeholder="Vertragsnummer, Kontakt, Wichtiges …">${escapeHtml(existing?.text || '')}</textarea>
+      </div>
+      <div class="field">
+        <label>Person (optional)</label>
+        <select id="rec-person">
+          <option value="">— niemand zugewiesen —</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Ablaufdatum (optional)</label>
+        <input type="date" id="rec-expiry" value="${expiryValue}" />
+      </div>
+      <div class="field">
+        <label>Externer Link (optional)</label>
+        <input type="url" id="rec-link" value="${escapeHtml(existing?.externalLink || '')}" placeholder="https://…" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        ${!isNew ? '<button class="btn btn-danger" id="delete-btn">Löschen</button>' : ''}
+        <button class="btn" id="save-btn">${isNew ? 'Anlegen' : 'Speichern'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const personSel = document.getElementById('rec-person');
+  memberUids.forEach(uid => {
+    const opt = document.createElement('option');
+    opt.value = uid;
+    opt.textContent = nameFor(uid);
+    if (existing?.personUid === uid) opt.selected = true;
+    personSel.appendChild(opt);
+  });
+  ensureNamesFor(memberUids, () => {
+    memberUids.forEach(uid => {
+      const opt = personSel.querySelector(`option[value="${uid}"]`);
+      if (opt) opt.textContent = nameFor(uid);
+    });
+  });
+  document.getElementById('rec-title').focus();
+  document.getElementById('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  document.getElementById('save-btn').addEventListener('click', async () => {
+    const title = document.getElementById('rec-title').value.trim();
+    if (!title) { document.getElementById('modal-msg').innerHTML = `<div class="msg msg-error">Titel darf nicht leer sein.</div>`; return; }
+    const category = document.getElementById('rec-category').value;
+    const text = document.getElementById('rec-text').value.trim();
+    const personUid = document.getElementById('rec-person').value || null;
+    const expiryStr = document.getElementById('rec-expiry').value;
+    const expiresAt = expiryStr ? Timestamp.fromDate(new Date(expiryStr + 'T12:00:00')) : null;
+    const externalLink = document.getElementById('rec-link').value.trim() || null;
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    try {
+      if (isNew) {
+        await addDoc(collection(db, 'records'), {
+          householdId: hh.id,
+          title, category, text, personUid, expiresAt, externalLink,
+          owner: currentUser.uid,
+          members: { [currentUser.uid]: 'owner' },
+          createdBy: currentUser.uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        logActivity(hh.id, 'created', 'note', title);
+      } else {
+        await updateDoc(doc(db, 'records', existing.id), {
+          title, category, text, personUid, expiresAt, externalLink,
+          updatedAt: serverTimestamp()
+        });
+      }
+      overlay.remove();
+    } catch (err) {
+      document.getElementById('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+    }
+  });
+
+  const delBtn = document.getElementById('delete-btn');
+  if (delBtn) {
+    delBtn.addEventListener('click', async () => {
+      const backup = { ...existing };
+      delete backup.id;
+      try {
+        await deleteDoc(doc(db, 'records', existing.id));
+        overlay.remove();
+        showToast(`Eintrag „${existing.title}" gelöscht`, {
+          undo: async () => { await setDoc(doc(db, 'records', existing.id), backup); }
+        });
+      } catch (err) {
+        document.getElementById('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      }
+    });
+  }
 }
 
 // ── Notizen ───────────────────────────────────────────────────

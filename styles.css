@@ -815,10 +815,76 @@ input, select, textarea { font-family: inherit; }
   accent-color: var(--primary);
   cursor: pointer;
 }
-.cal-filter-chip:has(input:checked) {
+.cal-filter-chip:has(input:checked),
+.cal-filter-chip.chip-active {
   background: var(--surface2);
   border-color: var(--primary);
+  color: var(--primary);
 }
+.chip-count {
+  background: var(--bg2);
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.cal-filter-chip.chip-active .chip-count {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* Familien-Akte */
+.records-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.record-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.record-card:hover { transform: translateY(-2px); border-color: var(--primary); }
+.record-header { display: flex; align-items: center; gap: 10px; }
+.record-icon { font-size: 1.4rem; }
+.record-title { font-weight: 600; font-size: 0.98rem; flex: 1; }
+.record-text {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.record-footer { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--muted); }
+.record-person { font-size: 0.82rem; }
+.record-link {
+  color: var(--primary);
+  text-decoration: none;
+  padding: 2px 8px;
+  background: var(--bg2);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  margin-left: auto;
+}
+.record-link:hover { background: var(--surface2); }
+.record-expiry {
+  font-size: 0.78rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  text-align: center;
+}
+.expiry-ok { background: rgba(34,197,94,0.12); color: var(--success); }
+.expiry-soon { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.expiry-urgent { background: rgba(239,68,68,0.15); color: var(--danger); font-weight: 600; }
+.expiry-past { background: rgba(239,68,68,0.25); color: var(--danger); font-weight: 600; }
 
 /* Laufende Termine (Dashboard) */
 .event-row.is-live {
