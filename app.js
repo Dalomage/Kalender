@@ -3989,43 +3989,41 @@ function openEventModal(cal, existing, canEdit = true) {
         try { await Notification.requestPermission(); } catch {}
       }
 
-      try {
-        const payload = {
-          title,
-          start: Timestamp.fromDate(start),
-          end: Timestamp.fromDate(end),
-          allDay: isAllDay,
-          note,
-          location,
-          assignee,
-          category,
-          recurrence: $('ev-recurrence').value || 'none',
-          reminderMinutes,
-          updatedAt: serverTimestamp()
-        };
-        if (isNew) {
-          payload.createdAt = serverTimestamp();
-          payload.createdBy = currentUser.uid;
-          await addDoc(collection(db, 'calendars', cal.id, 'events'), payload);
-          logActivity(cal.householdId, 'created', 'event', title);
-          // Kopien in weitere ausgewählte Kalender
-          const copyTargets = Array.from(document.querySelectorAll('[data-copy-cal]:checked')).map(cb => cb.dataset.copyCal);
-          if (copyTargets.length) {
-            await Promise.all(copyTargets.map(async calId => {
-              try {
-                await addDoc(collection(db, 'calendars', calId, 'events'), { ...payload });
-              } catch (err) { console.warn('Kopie fehlgeschlagen für', calId, err); }
-            }));
+      const payload = {
+        title,
+        start: Timestamp.fromDate(start),
+        end: Timestamp.fromDate(end),
+        allDay: isAllDay,
+        note, location, assignee, category,
+        recurrence: $('ev-recurrence').value || 'none',
+        reminderMinutes,
+        updatedAt: serverTimestamp()
+      };
+      const copyTargets = isNew
+        ? Array.from(document.querySelectorAll('[data-copy-cal]:checked')).map(cb => cb.dataset.copyCal)
+        : [];
+      // Modal SOFORT schließen — Firestore-Writes im Hintergrund
+      overlay.remove();
+      (async () => {
+        try {
+          if (isNew) {
+            payload.createdAt = serverTimestamp();
+            payload.createdBy = currentUser.uid;
+            await addDoc(collection(db, 'calendars', cal.id, 'events'), payload);
+            logActivity(cal.householdId, 'created', 'event', title);
+            if (copyTargets.length) {
+              await Promise.all(copyTargets.map(cid =>
+                addDoc(collection(db, 'calendars', cid, 'events'), { ...payload }).catch(() => {})
+              ));
+            }
+          } else {
+            await updateDoc(doc(db, 'calendars', cal.id, 'events', existing.id), payload);
+            logActivity(cal.householdId, 'updated', 'event', title);
           }
-        } else {
-          await updateDoc(doc(db, 'calendars', cal.id, 'events', existing.id), payload);
-          logActivity(cal.householdId, 'updated', 'event', title);
+        } catch (err) {
+          showToast('Speichern fehlgeschlagen: ' + err.message, { type: 'error' });
         }
-        overlay.remove();
-      } catch (err) {
-        showEvMsg(err.message);
-        btn.disabled = false;
-      }
+      })();
     });
 
     const delBtn = $('delete-btn');
