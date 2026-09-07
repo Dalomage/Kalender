@@ -3984,9 +3984,9 @@ function openEventModal(cal, existing, canEdit = true) {
       const assignee = $('ev-assignee').value || null;
       const category = $('ev-category').value || 'none';
 
-      // Notification-Permission einholen, wenn Reminder gewünscht
+      // Notification-Permission asynchron anfragen (nicht blockierend)
       if (reminderMinutes > 0 && 'Notification' in window && Notification.permission === 'default') {
-        try { await Notification.requestPermission(); } catch {}
+        try { Notification.requestPermission().catch(() => {}); } catch {}
       }
 
       const payload = {
