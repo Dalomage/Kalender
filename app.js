@@ -1116,6 +1116,11 @@ async function renderDashboard(content, scope = null) {
 
       ${emptyHint}
 
+      <div id="dash-expiring-section" style="display:none;margin-top:1.5rem;">
+        <div class="section-title"><span>⚠️ Ablaufwarnungen</span></div>
+        <div id="dash-expiring"></div>
+      </div>
+
       <div id="dash-fav-notes-section" style="display:none;margin-top:1.5rem;">
         <div class="section-title"><span>⭐ Favoriten</span></div>
         <div id="dash-fav-notes"></div>
@@ -1152,6 +1157,18 @@ async function renderDashboard(content, scope = null) {
   if (favNotes.length) {
     renderNoteCards($('dash-fav-notes'), favNotes, '');
   }
+
+  // Ablaufwarnungen (nur im Haushalts-Dashboard)
+  const nowMs = Date.now();
+  const expiring = scope
+    ? records.filter(r =>
+        r.householdId === scope.id &&
+        r.expiresAt?.seconds &&
+        (r.expiresAt.seconds * 1000 - nowMs) < 30 * 24 * 60 * 60 * 1000 &&
+        (r.expiresAt.seconds * 1000 - nowMs) > -30 * 24 * 60 * 60 * 1000)
+    : [];
+  const expSection = $('dash-expiring-section');
+  if (expSection) expSection.style.display = expiring.length ? '' : 'none';
   if (expiring.length && scope) {
     renderRecordCards($('dash-expiring'), expiring, scope);
   }
