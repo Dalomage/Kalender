@@ -754,7 +754,10 @@ function topbarHtml(extra = '', showSearch = false) {
       ${extra}
       <div class="topbar-spacer"></div>
       ${showSearch ? '<button class="logout-btn" id="search-btn" title="Termine suchen">🔍</button>' : ''}
-      <button class="user-badge user-badge-btn" id="profile-btn" title="Profil">${escapeHtml(myProfile?.name || currentUser.email)}</button>
+      <button class="user-badge user-badge-btn" id="profile-btn" title="Profil">
+        <span class="user-badge-full">${escapeHtml(myProfile?.name || currentUser.email)}</span>
+        <span class="user-badge-icon" aria-hidden="true">👤</span>
+      </button>
       <button class="logout-btn" id="logout-btn">Abmelden</button>
     </header>
   `;

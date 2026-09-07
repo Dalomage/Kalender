@@ -1215,10 +1215,15 @@ body.weekday-accents .event-row[data-weekday="0"] { border-left-color: #ec4899; 
   color: var(--text);
   padding: 0 4px;
 }
+.user-badge-icon { display: none; }
+.user-badge-full { display: inline; }
 @media (max-width: 600px) {
   .topbar h1 { display: none; }
   .topbar-cal { font-size: 0.85rem; }
-  .user-badge { display: none; }
+  .user-badge-full { display: none; }
+  .user-badge-icon { display: inline; font-size: 1.1rem; }
+  .user-badge-btn { padding: 6px 8px; }
+  .logout-btn { padding: 6px 8px; font-size: 0.75rem; }
 }
 
 .field-inline label {
