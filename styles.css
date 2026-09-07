@@ -1190,12 +1190,57 @@ body.weekday-accents .event-row[data-weekday="0"] { border-left-color: #ec4899; 
   color: var(--muted);
   font-size: 0.85rem;
   font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .user-badge-btn:hover {
   color: var(--text);
   border-color: var(--border);
   background: var(--surface2);
 }
+
+/* Avatare */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 600;
+  flex-shrink: 0;
+  font-family: system-ui, sans-serif;
+  line-height: 1;
+}
+.avatar-sm { width: 24px; height: 24px; font-size: 0.85rem; }
+.avatar-md { width: 36px; height: 36px; font-size: 1.1rem; }
+.avatar-lg { width: 56px; height: 56px; font-size: 1.7rem; }
+
+.member-info { display: flex; align-items: center; gap: 12px; }
+.activity-row { align-items: center; }
+
+.avatar-emoji-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 4px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.avatar-emoji-swatch {
+  background: transparent;
+  border: 2px solid transparent;
+  padding: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1.15rem;
+  transition: background 0.1s, border-color 0.1s;
+}
+.avatar-emoji-swatch:hover { background: var(--surface2); }
+.avatar-emoji-swatch.selected { border-color: var(--primary); background: var(--surface); }
 
 .content {
   flex: 1;

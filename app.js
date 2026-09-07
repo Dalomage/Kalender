@@ -272,6 +272,32 @@ function openWeatherLocationModal() {
 }
 
 // ── Nutzerprofile ─────────────────────────────────────────────
+// Emoji-Avatare für Personen
+const AVATAR_EMOJIS = [
+  '👨', '👨‍🦰', '👨‍🦱', '👨‍🦳', '👨‍🦲', '🧔', '👴',
+  '👩', '👩‍🦰', '👩‍🦱', '👩‍🦳', '👩‍🦲', '👵',
+  '🧑', '🧒', '👶', '👦', '👧',
+  '🐱', '🐶', '🦊', '🐻', '🦁', '🐯', '🐼', '🐰', '🐸', '🐵', '🦄',
+  '🌟', '⚡', '🎨', '🚀', '🎸', '🎯', '⚽', '🏀', '🎮', '📚'
+];
+const AVATAR_COLORS = [
+  '#14b8a6', '#3b82f6', '#a855f7', '#ec4899',
+  '#f59e0b', '#ef4444', '#22c55e', '#0ea5e9',
+  '#f97316', '#84cc16', '#06b6d4', '#8b5cf6'
+];
+function defaultAvatarColor(uid) {
+  // Deterministischer Fallback aus uid-Hash
+  let h = 0;
+  for (let i = 0; i < uid.length; i++) h = ((h << 5) - h + uid.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
+function avatarHtml(uid, size = 'md') {
+  const cached = userCache.get(uid);
+  const emoji = cached?.avatar || '';
+  const color = cached?.avatarColor || defaultAvatarColor(uid);
+  return `<span class="avatar avatar-${size}" style="background:${color};" aria-hidden="true">${emoji || (nameFor(uid).charAt(0).toUpperCase() || '?')}</span>`;
+}
+
 const THEMES = [
   { id: 'dark',     label: '🌙 Dark Teal (Standard)' },
   { id: 'light',    label: '☀️ Hell' },
@@ -317,7 +343,9 @@ async function loadMyProfile() {
       weatherLon: data.weatherLon || null,
       theme: data.theme || 'dark',
       kidsMode: !!data.kidsMode,
-      weekdayAccents: !!data.weekdayAccents
+      weekdayAccents: !!data.weekdayAccents,
+      avatar: data.avatar || '',
+      avatarColor: data.avatarColor || defaultAvatarColor(currentUser.uid)
     };
   } catch {
     myProfile = { name: currentUser.email.split('@')[0], email: currentUser.email, theme: 'dark' };
@@ -335,7 +363,9 @@ async function ensureUserLoaded(uid) {
     const data = snap.exists() ? snap.data() : {};
     const profile = {
       name: data.name || (data.email ? data.email.split('@')[0] : uid.slice(0, 6)),
-      email: data.email || ''
+      email: data.email || '',
+      avatar: data.avatar || '',
+      avatarColor: data.avatarColor || defaultAvatarColor(uid)
     };
     userCache.set(uid, profile);
     return profile;
@@ -755,8 +785,8 @@ function topbarHtml(extra = '', showSearch = false) {
       <div class="topbar-spacer"></div>
       ${showSearch ? '<button class="logout-btn" id="search-btn" title="Termine suchen">🔍</button>' : ''}
       <button class="user-badge user-badge-btn" id="profile-btn" title="Profil">
+        ${avatarHtml(currentUser.uid, 'sm')}
         <span class="user-badge-full">${escapeHtml(myProfile?.name || currentUser.email)}</span>
-        <span class="user-badge-icon" aria-hidden="true">👤</span>
       </button>
       <button class="logout-btn" id="logout-btn">Abmelden</button>
     </header>
@@ -794,6 +824,19 @@ function openProfileModal() {
         <button type="button" class="btn btn-secondary btn-small" id="pf-change-pw">🔒 Passwort ändern</button>
       </div>
       <div class="field">
+        <label>Avatar</label>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;">
+          <div id="pf-avatar-preview" class="avatar avatar-lg" style="background:${escapeHtml(myProfile?.avatarColor || '#14b8a6')};">${escapeHtml(myProfile?.avatar || (myProfile?.name?.charAt(0).toUpperCase() || '?'))}</div>
+          <span style="color:var(--muted);font-size:0.85rem;">Emoji + Farbe wählen</span>
+        </div>
+        <div class="avatar-emoji-picker" id="pf-avatar-picker">
+          ${AVATAR_EMOJIS.map(e => `<button type="button" class="avatar-emoji-swatch ${myProfile?.avatar === e ? 'selected' : ''}" data-emoji="${e}">${e}</button>`).join('')}
+        </div>
+        <div class="color-picker" style="margin-top:8px;">
+          ${AVATAR_COLORS.map(c => `<div class="color-swatch ${myProfile?.avatarColor === c ? 'selected' : ''}" data-avatar-color="${c}" style="background:${c};"></div>`).join('')}
+        </div>
+      </div>
+      <div class="field">
         <label>Design</label>
         <select id="pf-theme">
           ${THEMES.map(t => `<option value="${t.id}" ${myProfile?.theme === t.id ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
@@ -819,6 +862,32 @@ function openProfileModal() {
   $('pf-change-pw').addEventListener('click', openChangePasswordModal);
   $('pf-change-email').addEventListener('click', openChangeEmailModal);
 
+  let selectedAvatar = myProfile?.avatar || '';
+  let selectedAvatarColor = myProfile?.avatarColor || defaultAvatarColor(currentUser.uid);
+  const updateAvatarPreview = () => {
+    const el = document.getElementById('pf-avatar-preview');
+    if (!el) return;
+    el.style.background = selectedAvatarColor;
+    el.textContent = selectedAvatar || ($('pf-name').value.trim().charAt(0).toUpperCase() || '?');
+  };
+  document.querySelectorAll('#pf-avatar-picker .avatar-emoji-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#pf-avatar-picker .avatar-emoji-swatch').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedAvatar = btn.dataset.emoji;
+      updateAvatarPreview();
+    });
+  });
+  document.querySelectorAll('[data-avatar-color]').forEach(sw => {
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('[data-avatar-color]').forEach(s => s.classList.remove('selected'));
+      sw.classList.add('selected');
+      selectedAvatarColor = sw.dataset.avatarColor;
+      updateAvatarPreview();
+    });
+  });
+  $('pf-name').addEventListener('input', updateAvatarPreview);
+
   // Live-Preview: Theme sofort anwenden während Auswahl
   $('pf-theme').addEventListener('change', () => applyTheme($('pf-theme').value, $('pf-kids').checked, $('pf-weekday').checked));
   $('pf-kids').addEventListener('change', () => applyTheme($('pf-theme').value, $('pf-kids').checked, $('pf-weekday').checked));
@@ -835,12 +904,15 @@ function openProfileModal() {
     try {
       await setDoc(doc(db, 'users', currentUser.uid), {
         name, email: currentUser.email, theme, kidsMode, weekdayAccents,
+        avatar: selectedAvatar, avatarColor: selectedAvatarColor,
         updatedAt: serverTimestamp()
       }, { merge: true });
       myProfile.name = name;
       myProfile.theme = theme;
       myProfile.kidsMode = kidsMode;
       myProfile.weekdayAccents = weekdayAccents;
+      myProfile.avatar = selectedAvatar;
+      myProfile.avatarColor = selectedAvatarColor;
       userCache.set(currentUser.uid, myProfile);
       applyTheme(theme, kidsMode, weekdayAccents);
       overlay.remove();
@@ -1416,9 +1488,12 @@ function renderMembers(hh, canEdit) {
   const entries = Object.entries(hh.members || {});
   el.innerHTML = `<div class="member-list">${entries.map(([uid, role]) => `
     <div class="member-row">
-      <div>
-        <div class="member-name">${escapeHtml(nameFor(uid))}</div>
-        <div class="member-role">${role === 'owner' ? 'Owner' : 'Mitglied'}</div>
+      <div class="member-info">
+        ${avatarHtml(uid, 'md')}
+        <div>
+          <div class="member-name">${escapeHtml(nameFor(uid))}</div>
+          <div class="member-role">${role === 'owner' ? 'Owner' : 'Mitglied'}</div>
+        </div>
       </div>
       ${canEdit && uid !== currentUser.uid && role !== 'owner' ? `
         <button class="btn btn-secondary btn-small" data-remove-uid="${uid}">Entfernen</button>
@@ -3417,6 +3492,7 @@ async function renderActivityLog(hh) {
       const when = a.at ? timeAgo(a.at.toDate()) : '';
       return `
         <div class="activity-row">
+          ${avatarHtml(a.byUid, 'sm')}
           <span class="activity-icon">${lbl.icon}</span>
           <div class="activity-body">
             <div><b>${escapeHtml(nameFor(a.byUid))}</b> hat ${escapeHtml(lbl.word.toLowerCase())} „${escapeHtml(a.targetName || '')}" ${escapeHtml(verb)}</div>
