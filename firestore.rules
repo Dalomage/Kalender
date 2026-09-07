@@ -3,7 +3,13 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     match /users/{userId} {
+      // Öffentliches Profil: name, avatar, avatarColor
       allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /usersPrivate/{userId} {
+      // Sensible Daten: email, weatherCity/Lat/Lon, theme, kidsMode etc.
+      allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 

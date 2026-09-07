@@ -5,7 +5,7 @@ import {
   getAuth, onAuthStateChanged,
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
   sendPasswordResetEmail, updatePassword, updateEmail,
-  EmailAuthProvider, reauthenticateWithCredential
+  EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js';
 import {
   getFirestore, collection, query, where, onSnapshot, getDocs, getDoc,
@@ -87,6 +87,13 @@ onAuthStateChanged(auth, async user => {
   loadingEl.classList.add('hidden');
   currentUser = user;
   if (user) {
+    // E-Mail-Verifizierung erzwingen (Konten ab jetzt)
+    if (!user.emailVerified) {
+      appEl.classList.add('hidden');
+      loginEl.classList.remove('hidden');
+      renderVerifyEmailScreen(user);
+      return;
+    }
     // Session-Ablauf prüfen: bei über 30 Tagen zwangsweise abmelden
     let startAt = 0;
     try { startAt = parseInt(localStorage.getItem(SESSION_KEY) || '0', 10); } catch {}
@@ -243,7 +250,7 @@ function openWeatherLocationModal() {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   document.getElementById('clear-btn')?.addEventListener('click', async () => {
     try {
-      await setDoc(doc(db, 'users', currentUser.uid), {
+      await setDoc(doc(db, 'usersPrivate', currentUser.uid), {
         weatherCity: deleteField(), weatherLat: deleteField(), weatherLon: deleteField()
       }, { merge: true });
       myProfile.weatherCity = null; myProfile.weatherLat = null; myProfile.weatherLon = null;
@@ -264,7 +271,7 @@ function openWeatherLocationModal() {
       const geoData = await geo.json();
       const hit = geoData?.results?.[0];
       if (!hit) throw new Error('Ort nicht gefunden.');
-      await setDoc(doc(db, 'users', currentUser.uid), {
+      await setDoc(doc(db, 'usersPrivate', currentUser.uid), {
         weatherCity: hit.name, weatherLat: hit.latitude, weatherLon: hit.longitude
       }, { merge: true });
       myProfile.weatherCity = hit.name;
@@ -341,24 +348,52 @@ function applyTheme(themeId, kidsMode, weekdayAccents) {
 }
 
 async function loadMyProfile() {
+  let pub = {}, priv = {};
   try {
-    const snap = await getDoc(doc(db, 'users', currentUser.uid));
-    const data = snap.exists() ? snap.data() : {};
-    myProfile = {
-      name: data.name || currentUser.email.split('@')[0],
-      email: currentUser.email,
-      weatherCity: data.weatherCity || null,
-      weatherLat: data.weatherLat || null,
-      weatherLon: data.weatherLon || null,
-      theme: data.theme || 'dark',
-      kidsMode: !!data.kidsMode,
-      weekdayAccents: !!data.weekdayAccents,
-      avatar: data.avatar || '',
-      avatarColor: data.avatarColor || defaultAvatarColor(currentUser.uid)
+    const s1 = await getDoc(doc(db, 'users', currentUser.uid));
+    pub = s1.exists() ? s1.data() : {};
+  } catch {}
+  try {
+    const s2 = await getDoc(doc(db, 'usersPrivate', currentUser.uid));
+    priv = s2.exists() ? s2.data() : {};
+  } catch {}
+  // Migration: falls alte sensible Felder in users, in usersPrivate umziehen
+  if (!priv.email && pub.email) {
+    priv = {
+      email: pub.email,
+      weatherCity: pub.weatherCity || null,
+      weatherLat: pub.weatherLat || null,
+      weatherLon: pub.weatherLon || null,
+      theme: pub.theme || 'dark',
+      kidsMode: !!pub.kidsMode,
+      weekdayAccents: !!pub.weekdayAccents
     };
-  } catch {
-    myProfile = { name: currentUser.email.split('@')[0], email: currentUser.email, theme: 'dark' };
+    try {
+      await setDoc(doc(db, 'usersPrivate', currentUser.uid), priv, { merge: true });
+      // Alte Felder aus users entfernen
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        email: deleteField(),
+        weatherCity: deleteField(),
+        weatherLat: deleteField(),
+        weatherLon: deleteField(),
+        theme: deleteField(),
+        kidsMode: deleteField(),
+        weekdayAccents: deleteField()
+      });
+    } catch {}
   }
+  myProfile = {
+    name: pub.name || currentUser.email.split('@')[0],
+    email: currentUser.email,
+    avatar: pub.avatar || '',
+    avatarColor: pub.avatarColor || defaultAvatarColor(currentUser.uid),
+    weatherCity: priv.weatherCity || null,
+    weatherLat: priv.weatherLat || null,
+    weatherLon: priv.weatherLon || null,
+    theme: priv.theme || 'dark',
+    kidsMode: !!priv.kidsMode,
+    weekdayAccents: !!priv.weekdayAccents
+  };
   userCache.set(currentUser.uid, myProfile);
   applyTheme(myProfile.theme, myProfile.kidsMode, myProfile.weekdayAccents);
 }
@@ -559,7 +594,7 @@ function renderLogin() {
         </div>
         <div class="field">
           <label>Passwort</label>
-          <input type="password" id="in-pass" autocomplete="current-password" required minlength="6" />
+          <input type="password" id="in-pass" autocomplete="current-password" required minlength="8" />
         </div>
         <button type="submit" class="btn" id="submit-btn">Anmelden</button>
       </form>
@@ -596,14 +631,19 @@ function renderLogin() {
     const pass = $('in-pass').value;
     const name = $('in-name').value.trim();
     try {
+      if (pass.length < 8) throw { code: 'auth/weak-password' };
       if (mode === 'login') {
         await signInWithEmailAndPassword(auth, email, pass);
       } else {
         const cred = await createUserWithEmailAndPassword(auth, email, pass);
         await setDoc(doc(db, 'users', cred.user.uid), {
-          email, name: name || email.split('@')[0],
+          name: name || email.split('@')[0],
           createdAt: serverTimestamp()
         });
+        await setDoc(doc(db, 'usersPrivate', cred.user.uid), {
+          email, createdAt: serverTimestamp()
+        });
+        try { await sendEmailVerification(cred.user); } catch {}
       }
       // Neuer 30-Tage-Session-Timer setzen
       try { localStorage.setItem(SESSION_KEY, String(Date.now())); } catch {}
@@ -621,6 +661,37 @@ function showMsg(text, type = 'error') {
   el.innerHTML = `<div class="msg msg-${type}">${text}</div>`;
 }
 
+function renderVerifyEmailScreen(user) {
+  loginEl.innerHTML = `
+    <div class="login-box">
+      <div class="login-title">📅 Kalender</div>
+      <div class="login-sub" style="margin-bottom:1rem;">E-Mail bestätigen</div>
+      <p style="color:var(--text);font-size:0.9rem;margin-bottom:1rem;">
+        Wir haben dir eine Bestätigungs-E-Mail an<br>
+        <b>${escapeHtml(user.email)}</b><br>
+        geschickt. Bitte klick den Link darin und lade danach diese Seite neu.
+      </p>
+      <button class="btn" id="verify-reload">Ich hab bestätigt — neu laden</button>
+      <div class="login-footer" style="margin-top:0.75rem;">
+        <button type="button" class="login-link" id="verify-resend">E-Mail erneut senden</button>
+        <span style="color:var(--muted);"> · </span>
+        <button type="button" class="login-link" id="verify-logout">Abmelden</button>
+      </div>
+      <div id="verify-msg"></div>
+    </div>
+  `;
+  document.getElementById('verify-reload').addEventListener('click', () => window.location.reload());
+  document.getElementById('verify-logout').addEventListener('click', () => signOut(auth));
+  document.getElementById('verify-resend').addEventListener('click', async () => {
+    try {
+      await sendEmailVerification(user);
+      document.getElementById('verify-msg').innerHTML = `<div class="msg msg-success" style="margin-top:0.75rem;">Neue E-Mail wurde verschickt.</div>`;
+    } catch (err) {
+      document.getElementById('verify-msg').innerHTML = `<div class="msg msg-error" style="margin-top:0.75rem;">${escapeHtml(friendlyAuthError(err.code))}</div>`;
+    }
+  });
+}
+
 function friendlyAuthError(code) {
   const map = {
     'auth/invalid-email': 'Ungültige E-Mail-Adresse.',
@@ -628,7 +699,7 @@ function friendlyAuthError(code) {
     'auth/user-not-found': 'Kein Konto mit dieser E-Mail gefunden.',
     'auth/wrong-password': 'Passwort falsch.',
     'auth/email-already-in-use': 'Diese E-Mail wird bereits verwendet.',
-    'auth/weak-password': 'Passwort zu kurz (mindestens 6 Zeichen).',
+    'auth/weak-password': 'Passwort zu kurz (mindestens 8 Zeichen).',
     'auth/requires-recent-login': 'Bitte kurz neu anmelden — dann funktioniert es.',
     'auth/network-request-failed': 'Keine Verbindung — Internet prüfen.'
   };
@@ -688,11 +759,11 @@ function openChangePasswordModal() {
       </div>
       <div class="field">
         <label>Neues Passwort</label>
-        <input type="password" id="cp-new" autocomplete="new-password" required minlength="6" />
+        <input type="password" id="cp-new" autocomplete="new-password" required minlength="8" />
       </div>
       <div class="field">
         <label>Wiederholen</label>
-        <input type="password" id="cp-new2" autocomplete="new-password" required minlength="6" />
+        <input type="password" id="cp-new2" autocomplete="new-password" required minlength="8" />
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
@@ -709,7 +780,7 @@ function openChangePasswordModal() {
     const newPw = $('cp-new').value;
     const newPw2 = $('cp-new2').value;
     const errBox = $('modal-msg');
-    if (newPw.length < 6) { errBox.innerHTML = `<div class="msg msg-error">Neues Passwort muss mindestens 6 Zeichen haben.</div>`; return; }
+    if (newPw.length < 8) { errBox.innerHTML = `<div class="msg msg-error">Neues Passwort muss mindestens 8 Zeichen haben.</div>`; return; }
     if (newPw !== newPw2) { errBox.innerHTML = `<div class="msg msg-error">Passwörter stimmen nicht überein.</div>`; return; }
     const btn = $('save-btn');
     btn.disabled = true;
@@ -765,8 +836,8 @@ function openChangeEmailModal() {
       const cred = EmailAuthProvider.credential(currentUser.email, pw);
       await reauthenticateWithCredential(currentUser, cred);
       await updateEmail(currentUser, email);
-      // users/{uid} email-Feld mitziehen
-      await setDoc(doc(db, 'users', currentUser.uid), { email }, { merge: true });
+      // E-Mail nur in usersPrivate speichern (nicht mehr im öffentlichen Profil)
+      await setDoc(doc(db, 'usersPrivate', currentUser.uid), { email }, { merge: true });
       myProfile.email = email;
       overlay.remove();
       showToast('E-Mail geändert', { type: 'success' });
@@ -956,9 +1027,11 @@ function openProfileModal() {
     btn.disabled = true;
     try {
       await setDoc(doc(db, 'users', currentUser.uid), {
-        name, email: currentUser.email, theme, kidsMode, weekdayAccents,
-        avatar: selectedAvatar, avatarColor: selectedAvatarColor,
+        name, avatar: selectedAvatar, avatarColor: selectedAvatarColor,
         updatedAt: serverTimestamp()
+      }, { merge: true });
+      await setDoc(doc(db, 'usersPrivate', currentUser.uid), {
+        theme, kidsMode, weekdayAccents, updatedAt: serverTimestamp()
       }, { merge: true });
       myProfile.name = name;
       myProfile.theme = theme;
