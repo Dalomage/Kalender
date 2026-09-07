@@ -47,6 +47,7 @@ let lists = [];
 let notes = [];
 let records = [];
 let persons = [];
+let mealplans = [];
 const unsubs = {
   households: null,
   calendarsDirect: null,
@@ -57,6 +58,7 @@ const unsubs = {
   notesHousehold: null,
   recordsHousehold: null,
   personsHousehold: null,
+  mealplansHousehold: null,
   events: null,
   items: null
 };
@@ -132,6 +134,7 @@ function stopAll() {
   notes = [];
   records = [];
   persons = [];
+  mealplans = [];
   currentHousehold = null;
   currentCalendar = null;
   currentList = null;
@@ -445,6 +448,7 @@ function resubscribeHouseholdCalendars() {
   if (unsubs.notesHousehold) { unsubs.notesHousehold(); unsubs.notesHousehold = null; }
   if (unsubs.recordsHousehold) { unsubs.recordsHousehold(); unsubs.recordsHousehold = null; }
   if (unsubs.personsHousehold) { unsubs.personsHousehold(); unsubs.personsHousehold = null; }
+  if (unsubs.mealplansHousehold) { unsubs.mealplansHousehold(); unsubs.mealplansHousehold = null; }
   const hhIds = households.map(h => h.id);
   if (hhIds.length === 0) {
     calendars = calendars.filter(c => c._source !== 'household');
@@ -452,6 +456,7 @@ function resubscribeHouseholdCalendars() {
     notes = notes.filter(n => n._source !== 'household');
     records = [];
     persons = [];
+    mealplans = [];
     return;
   }
   unsubs.calendarsHousehold = onSnapshot(
@@ -477,6 +482,15 @@ function resubscribeHouseholdCalendars() {
       renderCurrent();
     },
     err => console.error('records household sub failed:', err)
+  );
+  unsubs.mealplansHousehold = onSnapshot(
+    query(collection(db, 'mealplans'), where('householdId', 'in', hhIds.slice(0, 30))),
+    snap => {
+      mealplans = [];
+      snap.forEach(d => mealplans.push({ id: d.id, ...d.data() }));
+      renderCurrent();
+    },
+    err => console.error('mealplans household sub failed:', err)
   );
   unsubs.personsHousehold = onSnapshot(
     query(collection(db, 'persons'), where('householdId', 'in', hhIds.slice(0, 30))),
@@ -1451,6 +1465,7 @@ function renderHousehold() {
         <button data-hhtab="calendars" class="${householdTab === 'calendars' ? 'active' : ''}">📅 Kalender</button>
         <button data-hhtab="lists" class="${householdTab === 'lists' ? 'active' : ''}">📝 Listen</button>
         <button data-hhtab="notes" class="${householdTab === 'notes' ? 'active' : ''}">📌 Notizen</button>
+        <button data-hhtab="meal" class="${householdTab === 'meal' ? 'active' : ''}">🍽️ Essen</button>
         <button data-hhtab="records" class="${householdTab === 'records' ? 'active' : ''}">📁 Akte</button>
         <button data-hhtab="members" class="${householdTab === 'members' ? 'active' : ''}">👥 Mitglieder</button>
       </div>
@@ -1493,6 +1508,8 @@ function renderHouseholdTab(hh, isOwner) {
     `;
     $('new-hh-list-btn').addEventListener('click', () => openNewListModal(hh));
     renderListCards($('hh-lists'), lists.filter(l => l.householdId === hh.id), 'Noch keine Liste in diesem Haushalt.');
+  } else if (householdTab === 'meal') {
+    renderMealTab(content, hh);
   } else if (householdTab === 'records') {
     renderRecordsTab(content, hh);
   } else if (householdTab === 'notes') {
@@ -3006,6 +3023,267 @@ function formatDate(d, allDay) {
     ? { day: '2-digit', month: '2-digit', year: 'numeric' }
     : { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' };
   return d.toLocaleString('de-DE', opts) + (allDay ? '' : ' Uhr');
+}
+
+// ── Wochenend-Menüplan ────────────────────────────────────────
+const MEAL_DAYS = [
+  { key: 'friday',   label: 'Freitag',  dayOfWeek: 5 },
+  { key: 'saturday', label: 'Samstag',  dayOfWeek: 6 },
+  { key: 'sunday',   label: 'Sonntag',  dayOfWeek: 0 }
+];
+
+function fridayOfWeek(offset = 0) {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  // Freitag = 5. Wenn heute nach Sonntag: nächster Freitag; wenn heute vor Fr: aktueller Fr
+  const day = d.getDay(); // 0=So, 1=Mo, ..., 5=Fr, 6=Sa
+  let diff;
+  if (day <= 5) diff = 5 - day;         // 0 (Fr) bis Sonntag(-2)
+  else diff = 5 - day + 7;              // Samstag → +6
+  d.setDate(d.getDate() + diff + offset * 7);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function fridayKey(d) {
+  return d.getFullYear() + '_' + String(d.getMonth() + 1).padStart(2, '0') + '_' + String(d.getDate()).padStart(2, '0');
+}
+
+let mealWeekOffset = 0;
+function renderMealTab(content, hh) {
+  const friday = fridayOfWeek(mealWeekOffset);
+  const key = fridayKey(friday);
+  const plan = mealplans.find(m => m.householdId === hh.id && m.weekKey === key)
+    || { householdId: hh.id, weekKey: key, days: {}, _new: true };
+
+  const rangeLabel = `${friday.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}–${new Date(friday.getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+
+  content.innerHTML = `
+    <div class="section-title">
+      <span>🍽️ Wochenend-Menü</span>
+    </div>
+    <div class="meal-nav">
+      <button class="btn btn-secondary btn-small" id="meal-prev">← Vorheriges</button>
+      <div class="meal-range">${escapeHtml(rangeLabel)}${mealWeekOffset === 0 ? ' <span style="color:var(--muted);font-size:0.78rem;">(dieses WE)</span>' : ''}</div>
+      <button class="btn btn-secondary btn-small" id="meal-next">Nächstes →</button>
+    </div>
+    <div class="meal-days">
+      ${MEAL_DAYS.map((d, i) => renderMealDay(plan, d, i, friday, hh)).join('')}
+    </div>
+  `;
+  $('meal-prev').addEventListener('click', () => { mealWeekOffset--; renderMealTab(content, hh); });
+  $('meal-next').addEventListener('click', () => { mealWeekOffset++; renderMealTab(content, hh); });
+  wireMealActions(content, plan, hh);
+}
+
+function renderMealDay(plan, day, dayIdx, friday, hh) {
+  const dayData = plan.days?.[day.key] || { proposals: [], chosenIdx: null };
+  const date = new Date(friday.getTime() + dayIdx * 24 * 60 * 60 * 1000);
+  const dateLabel = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  const proposals = dayData.proposals || [];
+  const chosen = dayData.chosenIdx;
+
+  return `
+    <div class="meal-day-card" data-day="${day.key}">
+      <div class="meal-day-header">
+        <div class="meal-day-title">${day.label}</div>
+        <div class="meal-day-date">${dateLabel}</div>
+      </div>
+      <div class="meal-proposals">
+        ${proposals.map((p, i) => `
+          <div class="meal-proposal ${chosen === i ? 'chosen' : ''}">
+            <div class="meal-p-head">
+              ${avatarHtml(p.by, 'sm')}
+              <div class="meal-p-dish">${escapeHtml(p.dish)}</div>
+              ${chosen === i ? '<span class="meal-chosen-badge">✓ gewählt</span>' : `<button class="btn btn-secondary btn-small" data-choose="${day.key}:${i}">Wählen</button>`}
+            </div>
+            ${p.ingredients?.length ? `
+              <div class="meal-ingredients">
+                ${p.ingredients.map(ing => `<span class="meal-ing">${escapeHtml(ing.qty ? ing.qty + '× ' : '')}${escapeHtml(ing.text)}</span>`).join('')}
+              </div>
+            ` : ''}
+            <div class="meal-p-actions">
+              ${chosen === i && p.ingredients?.length ? `<button class="btn btn-small" data-send-list="${day.key}:${i}">→ Auf Einkaufsliste</button>` : ''}
+              ${p.by === currentUser.uid || plan.createdBy === currentUser.uid ? `<button class="btn btn-secondary btn-small" data-del-prop="${day.key}:${i}">Löschen</button>` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <button class="btn btn-secondary btn-small meal-add-btn" data-add-day="${day.key}">+ Vorschlag hinzufügen</button>
+    </div>
+  `;
+}
+
+function wireMealActions(content, plan, hh) {
+  content.querySelectorAll('[data-add-day]').forEach(btn => {
+    btn.addEventListener('click', () => openMealProposalModal(plan, btn.dataset.addDay, hh));
+  });
+  content.querySelectorAll('[data-choose]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const [dayKey, idxStr] = btn.dataset.choose.split(':');
+      await updateMealPlan(plan, hh, p => {
+        if (!p.days[dayKey]) p.days[dayKey] = { proposals: [] };
+        p.days[dayKey].chosenIdx = parseInt(idxStr, 10);
+      });
+    });
+  });
+  content.querySelectorAll('[data-del-prop]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Vorschlag löschen?')) return;
+      const [dayKey, idxStr] = btn.dataset.delProp.split(':');
+      const idx = parseInt(idxStr, 10);
+      await updateMealPlan(plan, hh, p => {
+        if (!p.days[dayKey]?.proposals) return;
+        p.days[dayKey].proposals.splice(idx, 1);
+        if (p.days[dayKey].chosenIdx === idx) p.days[dayKey].chosenIdx = null;
+        else if (p.days[dayKey].chosenIdx > idx) p.days[dayKey].chosenIdx--;
+      });
+    });
+  });
+  content.querySelectorAll('[data-send-list]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [dayKey, idxStr] = btn.dataset.sendList.split(':');
+      const idx = parseInt(idxStr, 10);
+      const proposal = plan.days?.[dayKey]?.proposals?.[idx];
+      if (!proposal?.ingredients?.length) return;
+      openSendToListModal(proposal, hh);
+    });
+  });
+}
+
+async function updateMealPlan(plan, hh, mutate) {
+  const clone = JSON.parse(JSON.stringify(plan));
+  if (!clone.days) clone.days = {};
+  mutate(clone);
+  try {
+    if (plan._new) {
+      const payload = {
+        householdId: hh.id,
+        weekKey: plan.weekKey,
+        days: clone.days,
+        createdBy: currentUser.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      await addDoc(collection(db, 'mealplans'), payload);
+    } else {
+      await updateDoc(doc(db, 'mealplans', plan.id), {
+        days: clone.days,
+        updatedAt: serverTimestamp()
+      });
+    }
+  } catch (err) {
+    showToast('Fehler: ' + err.message, { type: 'error' });
+  }
+}
+
+function openMealProposalModal(plan, dayKey, hh) {
+  const dayLabel = MEAL_DAYS.find(d => d.key === dayKey)?.label || dayKey;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Vorschlag für ${escapeHtml(dayLabel)}</h2>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Gericht</label>
+        <input type="text" id="mp-dish" placeholder="z.B. Pizza Margherita" required />
+      </div>
+      <div class="field">
+        <label>Zutaten (optional — pro Zeile eins, „2 Milch" wird als 2× Milch erkannt)</label>
+        <textarea id="mp-ings" rows="6" placeholder="500 Mehl&#10;2 Tomaten&#10;Mozzarella&#10;Basilikum"></textarea>
+        <div class="field-hint">Nur wenn du willst — dann kann man das mit einem Klick auf die Einkaufsliste übertragen.</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn" id="save-btn">Vorschlagen</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('mp-dish').focus();
+  document.getElementById('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('save-btn').addEventListener('click', async () => {
+    const dish = document.getElementById('mp-dish').value.trim();
+    if (!dish) return;
+    const raw = document.getElementById('mp-ings').value.trim();
+    const ingredients = raw
+      ? raw.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+          const m = line.match(/^(\d+)\s+(.+)$/);
+          if (m) return { qty: parseInt(m[1], 10), text: m[2] };
+          return { qty: 1, text: line };
+        })
+      : [];
+    const proposal = { by: currentUser.uid, dish, ingredients, at: Date.now() };
+    await updateMealPlan(plan, hh, p => {
+      if (!p.days[dayKey]) p.days[dayKey] = { proposals: [], chosenIdx: null };
+      if (!p.days[dayKey].proposals) p.days[dayKey].proposals = [];
+      p.days[dayKey].proposals.push(proposal);
+    });
+    overlay.remove();
+  });
+}
+
+function openSendToListModal(proposal, hh) {
+  const hhLists = lists.filter(l => l.householdId === hh.id);
+  if (!hhLists.length) {
+    showToast('Kein Haushalts-Liste vorhanden. Leg erst eine Einkaufsliste im Haushalt an.', { type: 'error', duration: 5000 });
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>→ Zutaten auf Einkaufsliste</h2>
+      <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">
+        „${escapeHtml(proposal.dish)}" — ${proposal.ingredients.length} Zutaten
+      </p>
+      <div class="field">
+        <label>Auf welche Liste?</label>
+        <select id="sl-list">
+          ${hhLists.map(l => `<option value="${l.id}">${escapeHtml(l.icon || '📝')} ${escapeHtml(l.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        <button class="btn" id="send-btn">Übertragen</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('send-btn').addEventListener('click', async () => {
+    const listId = document.getElementById('sl-list').value;
+    const btn = document.getElementById('send-btn');
+    btn.disabled = true;
+    try {
+      const list = hhLists.find(l => l.id === listId);
+      // Höchsten order-Wert holen für Reihenfolge
+      const itemsSnap = await getDocs(collection(db, 'lists', listId, 'items'));
+      let maxOrder = 0;
+      itemsSnap.forEach(d => { const o = d.data().order || 0; if (o > maxOrder) maxOrder = o; });
+      const batch = writeBatch(db);
+      proposal.ingredients.forEach((ing, i) => {
+        const ref = doc(collection(db, 'lists', listId, 'items'));
+        batch.set(ref, {
+          text: ing.text,
+          qty: ing.qty || 1,
+          done: false,
+          order: maxOrder + i + 1,
+          createdBy: currentUser.uid,
+          createdAt: serverTimestamp()
+        });
+      });
+      batch.update(doc(db, 'lists', listId), { openCount: increment(proposal.ingredients.length) });
+      await batch.commit();
+      overlay.remove();
+      showToast(`${proposal.ingredients.length} Zutaten zu „${list.name}" hinzugefügt`, { type: 'success' });
+    } catch (err) {
+      showToast('Fehler: ' + err.message, { type: 'error' });
+      btn.disabled = false;
+    }
+  });
 }
 
 // ── Familien-Akte (records) ───────────────────────────────────
