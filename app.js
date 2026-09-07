@@ -8,7 +8,8 @@ import {
   EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js';
 import {
-  getFirestore, collection, query, where, onSnapshot, getDocs, getDoc,
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, query, where, onSnapshot, getDocs, getDoc,
   addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, Timestamp,
   deleteField, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
@@ -19,7 +20,16 @@ let app, auth, db;
 if (configOk) {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
-  db = getFirestore(app);
+  // Firestore mit lokalem Cache: Schreibvorgänge fühlen sich sofort an,
+  // Synchronisation zum Server läuft im Hintergrund; Reads kommen bei
+  // Wiederholung aus dem lokalen IndexedDB
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    });
+  } catch {
+    db = getFirestore(app);
+  }
 } else {
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('loading').innerHTML =
