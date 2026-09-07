@@ -3314,6 +3314,45 @@ async function updateMealPlan(plan, hh, mutate) {
   }
 }
 
+function findRecipeInJsonLd(json) {
+  if (!json) return null;
+  if (Array.isArray(json)) {
+    for (const item of json) { const r = findRecipeInJsonLd(item); if (r) return r; }
+    return null;
+  }
+  if (json['@graph']) return findRecipeInJsonLd(json['@graph']);
+  const t = json['@type'];
+  if (t === 'Recipe' || (Array.isArray(t) && t.includes('Recipe'))) return json;
+  return null;
+}
+
+async function fetchRecipeFromUrl(url) {
+  const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+  if (!resp.ok) throw new Error('Rezept konnte nicht geladen werden');
+  const data = await resp.json();
+  const html = data.contents || '';
+  const parser = new DOMParser();
+  const docHtml = parser.parseFromString(html, 'text/html');
+  const scripts = docHtml.querySelectorAll('script[type="application/ld+json"]');
+  for (const script of scripts) {
+    try {
+      const recipe = findRecipeInJsonLd(JSON.parse(script.textContent));
+      if (recipe) {
+        return {
+          name: recipe.name || '',
+          ingredients: (recipe.recipeIngredient || []).map(t => {
+            const s = String(t).trim();
+            const m = s.match(/^(\d+(?:[,.]\d+)?)\s*(.*)$/);
+            if (m) return { qty: Math.max(1, Math.round(parseFloat(m[1].replace(',', '.')))), text: m[2] || s };
+            return { qty: 1, text: s };
+          })
+        };
+      }
+    } catch {}
+  }
+  throw new Error('Kein Rezept auf der Seite gefunden');
+}
+
 function openMealProposalModal(plan, dayKey, hh) {
   const dayLabel = MEAL_DAYS.find(d => d.key === dayKey)?.label || dayKey;
   const overlay = document.createElement('div');
@@ -3323,12 +3362,20 @@ function openMealProposalModal(plan, dayKey, hh) {
       <h2>Vorschlag für ${escapeHtml(dayLabel)}</h2>
       <div id="modal-msg"></div>
       <div class="field">
+        <label>Rezept-Link (optional)</label>
+        <div style="display:flex;gap:8px;">
+          <input type="url" id="mp-url" placeholder="https://www.chefkoch.de/..." style="flex:1;" />
+          <button type="button" class="btn btn-secondary btn-small" id="mp-fetch">Laden</button>
+        </div>
+        <div class="field-hint">Wir versuchen, Gericht und Zutaten automatisch aus der Seite zu lesen (Chefkoch, Lecker, EatSmarter, u.v.m.).</div>
+      </div>
+      <div class="field">
         <label>Gericht</label>
         <input type="text" id="mp-dish" placeholder="z.B. Pizza Margherita" required />
       </div>
       <div class="field">
         <label>Zutaten (optional — pro Zeile eins, „2 Milch" wird als 2× Milch erkannt)</label>
-        <textarea id="mp-ings" rows="6" placeholder="500 Mehl&#10;2 Tomaten&#10;Mozzarella&#10;Basilikum"></textarea>
+        <textarea id="mp-ings" rows="8" placeholder="500 Mehl&#10;2 Tomaten&#10;Mozzarella&#10;Basilikum"></textarea>
         <div class="field-hint">Nur wenn du willst — dann kann man das mit einem Klick auf die Einkaufsliste übertragen.</div>
       </div>
       <div class="modal-actions">
@@ -3339,6 +3386,29 @@ function openMealProposalModal(plan, dayKey, hh) {
   `;
   document.body.appendChild(overlay);
   document.getElementById('mp-dish').focus();
+
+  document.getElementById('mp-fetch').addEventListener('click', async () => {
+    const url = document.getElementById('mp-url').value.trim();
+    if (!url) return;
+    const msg = document.getElementById('modal-msg');
+    const fetchBtn = document.getElementById('mp-fetch');
+    msg.innerHTML = `<div class="msg" style="background:var(--surface2);color:var(--muted);">Rezept wird geladen …</div>`;
+    fetchBtn.disabled = true;
+    try {
+      const r = await fetchRecipeFromUrl(url);
+      const dishInput = document.getElementById('mp-dish');
+      const ingsArea = document.getElementById('mp-ings');
+      if (r.name && !dishInput.value.trim()) dishInput.value = r.name;
+      if (r.ingredients.length) {
+        const lines = r.ingredients.map(i => (i.qty > 1 ? i.qty + ' ' : '') + i.text);
+        ingsArea.value = ingsArea.value.trim() ? ingsArea.value.trim() + '\n' + lines.join('\n') : lines.join('\n');
+      }
+      msg.innerHTML = `<div class="msg msg-success">Rezept übernommen (${r.ingredients.length} Zutaten). Du kannst noch anpassen.</div>`;
+    } catch (err) {
+      msg.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+    }
+    fetchBtn.disabled = false;
+  });
   document.getElementById('cancel-btn').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   document.getElementById('save-btn').addEventListener('click', async () => {
