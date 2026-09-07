@@ -131,6 +131,7 @@ function stopAll() {
   lists = [];
   notes = [];
   records = [];
+  persons = [];
   currentHousehold = null;
   currentCalendar = null;
   currentList = null;
