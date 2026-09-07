@@ -595,6 +595,7 @@ function renderLogin() {
         <div class="field">
           <label>Passwort</label>
           <input type="password" id="in-pass" autocomplete="current-password" required minlength="8" />
+          <div class="pw-strength" id="pw-strength"></div>
         </div>
         <button type="submit" class="btn" id="submit-btn">Anmelden</button>
       </form>
@@ -616,8 +617,16 @@ function renderLogin() {
     submitBtn.textContent = mode === 'login' ? 'Anmelden' : 'Konto erstellen';
     nameField.style.display = mode === 'register' ? 'block' : 'none';
     passInput.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+    document.getElementById('pw-strength').innerHTML = '';
     showMsg('');
   }));
+
+  passInput.addEventListener('input', () => {
+    const strengthEl = document.getElementById('pw-strength');
+    if (mode !== 'register' || !passInput.value) { strengthEl.innerHTML = ''; return; }
+    const l = passwordStrengthLabel(passInput.value);
+    strengthEl.innerHTML = `<span class="${l.cls}">${l.text}</span>`;
+  });
 
   $('forgot-btn').addEventListener('click', () => {
     const prefill = $('in-email').value.trim();
@@ -631,7 +640,12 @@ function renderLogin() {
     const pass = $('in-pass').value;
     const name = $('in-name').value.trim();
     try {
-      if (pass.length < 8) throw { code: 'auth/weak-password' };
+      if (mode === 'register') {
+        const check = checkPasswordStrength(pass);
+        if (!check.ok) throw { code: 'auth/weak-password', message: check.msg };
+      } else if (pass.length < 8) {
+        throw { code: 'auth/weak-password' };
+      }
       if (mode === 'login') {
         await signInWithEmailAndPassword(auth, email, pass);
       } else {
@@ -690,6 +704,37 @@ function renderVerifyEmailScreen(user) {
       document.getElementById('verify-msg').innerHTML = `<div class="msg msg-error" style="margin-top:0.75rem;">${escapeHtml(friendlyAuthError(err.code))}</div>`;
     }
   });
+}
+
+// Häufige schwache Passwörter (Auszug — nur die absoluten Klassiker)
+const COMMON_WEAK_PASSWORDS = new Set([
+  'password', 'passwort', '12345678', '123456789', '1234567890',
+  'qwerty123', 'abc12345', 'password1', 'passwort1',
+  'iloveyou', 'welcome1', 'admin123', 'kalender', 'familie1'
+]);
+
+function checkPasswordStrength(pw) {
+  if (pw.length < 8) return { ok: false, msg: 'Mindestens 8 Zeichen.' };
+  if (COMMON_WEAK_PASSWORDS.has(pw.toLowerCase())) {
+    return { ok: false, msg: 'Zu einfach — bitte kein Standard-Passwort.' };
+  }
+  const hasLower = /[a-zäöüß]/.test(pw);
+  const hasUpper = /[A-ZÄÖÜ]/.test(pw);
+  const hasDigit = /\d/.test(pw);
+  const hasSpecial = /[^a-zA-Z0-9äöüÄÖÜß]/.test(pw);
+  const kinds = [hasLower, hasUpper, hasDigit, hasSpecial].filter(Boolean).length;
+  if (kinds < 3) {
+    return { ok: false, msg: 'Bitte mindestens 3 von: Groß-/Kleinbuchstaben, Zahl, Sonderzeichen.' };
+  }
+  return { ok: true };
+}
+
+function passwordStrengthLabel(pw) {
+  if (!pw) return { text: '', cls: '' };
+  const check = checkPasswordStrength(pw);
+  if (!check.ok) return { text: pw.length < 8 ? 'Zu kurz' : 'Schwach', cls: 'pw-weak' };
+  if (pw.length >= 12) return { text: 'Stark', cls: 'pw-strong' };
+  return { text: 'OK', cls: 'pw-ok' };
 }
 
 function friendlyAuthError(code) {
@@ -780,7 +825,8 @@ function openChangePasswordModal() {
     const newPw = $('cp-new').value;
     const newPw2 = $('cp-new2').value;
     const errBox = $('modal-msg');
-    if (newPw.length < 8) { errBox.innerHTML = `<div class="msg msg-error">Neues Passwort muss mindestens 8 Zeichen haben.</div>`; return; }
+    const strong = checkPasswordStrength(newPw);
+    if (!strong.ok) { errBox.innerHTML = `<div class="msg msg-error">${escapeHtml(strong.msg)}</div>`; return; }
     if (newPw !== newPw2) { errBox.innerHTML = `<div class="msg msg-error">Passwörter stimmen nicht überein.</div>`; return; }
     const btn = $('save-btn');
     btn.disabled = true;

@@ -1271,6 +1271,16 @@ body.weekday-accents .event-row[data-weekday="0"] { border-left-color: #ec4899; 
 }
 .login-link:hover { color: var(--primary); }
 
+.pw-strength {
+  font-size: 0.78rem;
+  margin-top: 4px;
+  text-align: right;
+  font-weight: 600;
+}
+.pw-strength .pw-weak { color: var(--danger); }
+.pw-strength .pw-ok { color: #f59e0b; }
+.pw-strength .pw-strong { color: var(--success); }
+
 /* ── Main App ── */
 #app { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar {
