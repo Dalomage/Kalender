@@ -2300,6 +2300,15 @@ function openCalendar(cal) {
   });
 
   const container = $('fc-container');
+  container.innerHTML = '<div class="empty" style="padding:2rem;text-align:center;"><div class="spinner"></div></div>';
+  // FullCalendar-Init auf nächsten Tick verschieben — Rest der Seite wird
+  // sofort sichtbar, dann rendert FC im Hintergrund
+  requestAnimationFrame(() => setupFullCalendar(container, cal, canEdit));
+  return;
+}
+
+function setupFullCalendar(container, cal, canEdit) {
+  container.innerHTML = '';
   fcInstance = new FullCalendar.Calendar(container, {
     locale: 'de',
     initialView: window.innerWidth < 700 ? 'listWeek' : 'dayGridMonth',
@@ -4067,18 +4076,17 @@ function expandRecurrence(data) {
   if (rec === 'none') return [{ start, end }];
 
   const now = new Date();
-  const horizonYearsBack = 1;   // ein Jahr rückwärts sichtbar
-  const horizonYearsFwd = 5;    // fünf Jahre in die Zukunft
-  const limitPast = new Date(now.getFullYear() - horizonYearsBack, 0, 1);
-  const limitFuture = new Date(now.getFullYear() + horizonYearsFwd, 11, 31);
+  // Enger horizont für Performance — deckt typische Kalender-Nutzung ab
+  const limitPast = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+  const limitFuture = new Date(now.getFullYear() + 1, now.getMonth() + 6, 1);
 
   const out = [];
   const push = d => {
     out.push({ start: new Date(d), end: new Date(d.getTime() + duration) });
   };
 
-  // Rückwärts nur bis limitPast, vorwärts bis limitFuture. Absoluter Cap 500.
-  const cap = 500;
+  // Rückwärts nur bis limitPast, vorwärts bis limitFuture. Absoluter Cap 200.
+  const cap = 200;
   const step = new Date(start);
   // Erst mal vorwärts vom Startdatum
   while (step <= limitFuture && out.length < cap) {
