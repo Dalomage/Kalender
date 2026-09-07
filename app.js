@@ -46,6 +46,7 @@ let calendars = [];
 let lists = [];
 let notes = [];
 let records = [];
+let persons = [];
 const unsubs = {
   households: null,
   calendarsDirect: null,
@@ -55,6 +56,7 @@ const unsubs = {
   notesDirect: null,
   notesHousehold: null,
   recordsHousehold: null,
+  personsHousehold: null,
   events: null,
   items: null
 };
@@ -441,12 +443,14 @@ function resubscribeHouseholdCalendars() {
   if (unsubs.listsHousehold) { unsubs.listsHousehold(); unsubs.listsHousehold = null; }
   if (unsubs.notesHousehold) { unsubs.notesHousehold(); unsubs.notesHousehold = null; }
   if (unsubs.recordsHousehold) { unsubs.recordsHousehold(); unsubs.recordsHousehold = null; }
+  if (unsubs.personsHousehold) { unsubs.personsHousehold(); unsubs.personsHousehold = null; }
   const hhIds = households.map(h => h.id);
   if (hhIds.length === 0) {
     calendars = calendars.filter(c => c._source !== 'household');
     lists = lists.filter(l => l._source !== 'household');
     notes = notes.filter(n => n._source !== 'household');
     records = [];
+    persons = [];
     return;
   }
   unsubs.calendarsHousehold = onSnapshot(
@@ -472,6 +476,26 @@ function resubscribeHouseholdCalendars() {
       renderCurrent();
     },
     err => console.error('records household sub failed:', err)
+  );
+  unsubs.personsHousehold = onSnapshot(
+    query(collection(db, 'persons'), where('householdId', 'in', hhIds.slice(0, 30))),
+    snap => {
+      persons = [];
+      snap.forEach(d => {
+        const data = { id: d.id, _isPerson: true, ...d.data() };
+        persons.push(data);
+        // In den Nutzer-Cache spiegeln, damit nameFor()/avatarHtml() funktionieren
+        userCache.set(d.id, {
+          name: data.name,
+          email: '',
+          avatar: data.avatar || '',
+          avatarColor: data.avatarColor || defaultAvatarColor(d.id),
+          isPerson: true
+        });
+      });
+      renderCurrent();
+    },
+    err => console.error('persons household sub failed:', err)
   );
 }
 
@@ -1523,24 +1547,175 @@ function renderHouseholdTab(hh, isOwner) {
 function renderMembers(hh, canEdit) {
   const el = $('members');
   const entries = Object.entries(hh.members || {});
-  el.innerHTML = `<div class="member-list">${entries.map(([uid, role]) => `
-    <div class="member-row">
-      <div class="member-info">
-        ${avatarHtml(uid, 'md')}
-        <div>
-          <div class="member-name">${escapeHtml(nameFor(uid))}</div>
-          <div class="member-role">${role === 'owner' ? 'Owner' : 'Mitglied'}</div>
+  const hhPersons = persons.filter(p => p.householdId === hh.id);
+  el.innerHTML = `
+    <div class="member-list">
+      ${entries.map(([uid, role]) => `
+        <div class="member-row">
+          <div class="member-info">
+            ${avatarHtml(uid, 'md')}
+            <div>
+              <div class="member-name">${escapeHtml(nameFor(uid))}</div>
+              <div class="member-role">${role === 'owner' ? 'Owner' : 'Mitglied'}</div>
+            </div>
+          </div>
+          ${canEdit && uid !== currentUser.uid && role !== 'owner' ? `
+            <button class="btn btn-secondary btn-small" data-remove-uid="${uid}">Entfernen</button>
+          ` : ''}
         </div>
-      </div>
-      ${canEdit && uid !== currentUser.uid && role !== 'owner' ? `
-        <button class="btn btn-secondary btn-small" data-remove-uid="${uid}">Entfernen</button>
-      ` : ''}
+      `).join('')}
     </div>
-  `).join('')}</div>`;
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:1.5rem 0 0.5rem;">
+      <div style="font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;">Weitere Personen im Haushalt</div>
+      <button class="btn btn-secondary btn-small" id="new-person-btn">+ Person hinzufügen</button>
+    </div>
+    <div class="field-hint" style="margin-bottom:8px;">
+      Kinder, Oma & Co. — ohne eigenen Login. Können in Terminen und Akte-Einträgen zugewiesen werden.
+    </div>
+    <div class="member-list">
+      ${hhPersons.length ? hhPersons.map(p => {
+        const age = p.birthDate?.seconds
+          ? Math.floor((Date.now() - p.birthDate.seconds * 1000) / (365.25 * 24 * 60 * 60 * 1000))
+          : null;
+        return `
+          <div class="member-row" data-person="${p.id}">
+            <div class="member-info" style="cursor:pointer;">
+              ${avatarHtml(p.id, 'md')}
+              <div>
+                <div class="member-name">${escapeHtml(p.name)}</div>
+                <div class="member-role">Person${age !== null ? ' · ' + age + ' J.' : ''}</div>
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-small" data-edit-person="${p.id}">Bearbeiten</button>
+          </div>
+        `;
+      }).join('') : `<div class="empty" style="padding:1rem;"><p>Noch keine weiteren Personen.</p></div>`}
+    </div>
+  `;
   el.querySelectorAll('[data-remove-uid]').forEach(btn => {
     btn.addEventListener('click', () => removeHouseholdMember(hh, btn.dataset.removeUid));
   });
+  $('new-person-btn').addEventListener('click', () => openPersonModal(null, hh));
+  el.querySelectorAll('[data-edit-person]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = persons.find(x => x.id === btn.dataset.editPerson);
+      if (p) openPersonModal(p, hh);
+    });
+  });
   ensureNamesFor(entries.map(([uid]) => uid), () => renderMembers(hh, canEdit));
+}
+
+function openPersonModal(existing, hh) {
+  const isNew = !existing;
+  let selectedAvatar = existing?.avatar || '';
+  let selectedAvatarColor = existing?.avatarColor || AVATAR_COLORS[0];
+  const bdayValue = existing?.birthDate?.seconds
+    ? new Date(existing.birthDate.seconds * 1000).toISOString().slice(0, 10)
+    : '';
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>${isNew ? 'Neue Person' : 'Person bearbeiten'}</h2>
+      <div id="modal-msg"></div>
+      <div class="field">
+        <label>Name</label>
+        <input type="text" id="p-name" value="${escapeHtml(existing?.name || '')}" placeholder="z.B. Emma" required />
+      </div>
+      <div class="field">
+        <label>Geburtsdatum (optional)</label>
+        <input type="date" id="p-bday" value="${bdayValue}" />
+      </div>
+      <div class="field">
+        <label>Avatar</label>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;">
+          <div id="p-avatar-preview" class="avatar avatar-lg" style="background:${escapeHtml(selectedAvatarColor)};">${escapeHtml(selectedAvatar || (existing?.name?.charAt(0).toUpperCase() || '?'))}</div>
+          <span style="color:var(--muted);font-size:0.85rem;">Emoji + Farbe wählen</span>
+        </div>
+        <div class="avatar-emoji-picker">
+          ${AVATAR_EMOJIS.map(e => `<button type="button" class="avatar-emoji-swatch ${selectedAvatar === e ? 'selected' : ''}" data-p-emoji="${e}">${e}</button>`).join('')}
+        </div>
+        <div class="color-picker" style="margin-top:8px;">
+          ${AVATAR_COLORS.map(c => `<div class="color-swatch ${selectedAvatarColor === c ? 'selected' : ''}" data-p-color="${c}" style="background:${c};"></div>`).join('')}
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+        ${!isNew ? '<button class="btn btn-danger" id="delete-btn">Löschen</button>' : ''}
+        <button class="btn" id="save-btn">${isNew ? 'Anlegen' : 'Speichern'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const preview = document.getElementById('p-avatar-preview');
+  const updatePrev = () => {
+    preview.style.background = selectedAvatarColor;
+    preview.textContent = selectedAvatar || (document.getElementById('p-name').value.trim().charAt(0).toUpperCase() || '?');
+  };
+  overlay.querySelectorAll('[data-p-emoji]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      overlay.querySelectorAll('[data-p-emoji]').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedAvatar = btn.dataset.pEmoji;
+      updatePrev();
+    });
+  });
+  overlay.querySelectorAll('[data-p-color]').forEach(sw => {
+    sw.addEventListener('click', () => {
+      overlay.querySelectorAll('[data-p-color]').forEach(s => s.classList.remove('selected'));
+      sw.classList.add('selected');
+      selectedAvatarColor = sw.dataset.pColor;
+      updatePrev();
+    });
+  });
+  document.getElementById('p-name').addEventListener('input', updatePrev);
+  document.getElementById('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  document.getElementById('save-btn').addEventListener('click', async () => {
+    const name = document.getElementById('p-name').value.trim();
+    if (!name) return;
+    const bdayStr = document.getElementById('p-bday').value;
+    const birthDate = bdayStr ? Timestamp.fromDate(new Date(bdayStr + 'T12:00:00')) : null;
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    try {
+      if (isNew) {
+        await addDoc(collection(db, 'persons'), {
+          householdId: hh.id,
+          name, birthDate,
+          avatar: selectedAvatar,
+          avatarColor: selectedAvatarColor,
+          createdBy: currentUser.uid,
+          createdAt: serverTimestamp()
+        });
+      } else {
+        await updateDoc(doc(db, 'persons', existing.id), {
+          name, birthDate,
+          avatar: selectedAvatar,
+          avatarColor: selectedAvatarColor
+        });
+      }
+      overlay.remove();
+    } catch (err) {
+      document.getElementById('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+    }
+  });
+
+  const del = document.getElementById('delete-btn');
+  if (del) {
+    del.addEventListener('click', async () => {
+      if (!confirm(`Person „${existing.name}" wirklich löschen?`)) return;
+      try {
+        await deleteDoc(doc(db, 'persons', existing.id));
+        overlay.remove();
+      } catch (err) {
+        document.getElementById('modal-msg').innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      }
+    });
+  }
 }
 
 async function removeHouseholdMember(hh, uid) {
@@ -2962,6 +3137,7 @@ function openRecordModal(existing, hh) {
         <select id="rec-person">
           <option value="">— niemand zugewiesen —</option>
         </select>
+        <div class="field-hint">Mitglieder & weitere Personen im Haushalt</div>
       </div>
       <div class="field">
         <label>Ablaufdatum (optional)</label>
@@ -2980,11 +3156,19 @@ function openRecordModal(existing, hh) {
   `;
   document.body.appendChild(overlay);
   const personSel = document.getElementById('rec-person');
+  const hhPersons2 = persons.filter(p => p.householdId === hh.id);
   memberUids.forEach(uid => {
     const opt = document.createElement('option');
     opt.value = uid;
-    opt.textContent = nameFor(uid);
+    opt.textContent = '👤 ' + nameFor(uid);
     if (existing?.personUid === uid) opt.selected = true;
+    personSel.appendChild(opt);
+  });
+  hhPersons2.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = (p.avatar || '👶') + ' ' + p.name;
+    if (existing?.personUid === p.id) opt.selected = true;
     personSel.appendChild(opt);
   });
   ensureNamesFor(memberUids, () => {
@@ -3311,21 +3495,29 @@ function openEventModal(cal, existing, canEdit = true) {
   $('ev-reminder').value = String(existing?.reminderMinutes || 0);
   $('ev-category').value = existing?.category || 'none';
 
-  // Assignee-Dropdown mit Mitgliedern befüllen (Haushalt, sonst nur ich)
+  // Assignee-Dropdown mit Mitgliedern + Personen befüllen
   const assigneeSel = $('ev-assignee');
   const hh = cal.householdId ? households.find(h => h.id === cal.householdId) : null;
   const uids = hh ? Object.keys(hh.members || {}) : [currentUser.uid];
+  const hhPersons = hh ? persons.filter(p => p.householdId === hh.id) : [];
   uids.forEach(uid => {
     const opt = document.createElement('option');
     opt.value = uid;
-    opt.textContent = nameFor(uid);
+    opt.textContent = '👤 ' + nameFor(uid);
     if (existing?.assignee === uid) opt.selected = true;
+    assigneeSel.appendChild(opt);
+  });
+  hhPersons.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = (p.avatar || '👶') + ' ' + p.name;
+    if (existing?.assignee === p.id) opt.selected = true;
     assigneeSel.appendChild(opt);
   });
   ensureNamesFor(uids, () => {
     uids.forEach(uid => {
       const opt = assigneeSel.querySelector(`option[value="${uid}"]`);
-      if (opt) opt.textContent = nameFor(uid);
+      if (opt) opt.textContent = '👤 ' + nameFor(uid);
     });
   });
 
