@@ -1339,6 +1339,55 @@ function renderTaskBoard(scoped, hh) {
       toggleSubtask(taskId, subId, cb.checked);
     });
   });
+
+  // Drag & Drop zwischen Spalten (nur wenn Sortable geladen ist)
+  if (typeof Sortable !== 'undefined') {
+    board.querySelectorAll('.task-col-body').forEach(body => {
+      Sortable.create(body, {
+        group: 'tasks-board',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        dragClass: 'sortable-drag',
+        filter: '.task-status-btn, .task-subtask-check, .task-sub-more, .task-col-empty',
+        preventOnFilter: false,
+        delay: 100,        // etwas Verzögerung, damit einzelnes Antippen nicht als Drag zählt (v.a. auf Touch)
+        delayOnTouchOnly: true,
+        touchStartThreshold: 5,
+        onEnd: async e => {
+          const card = e.item;
+          const taskId = card?.dataset?.taskId;
+          const targetCol = e.to?.closest('.task-col')?.dataset?.col;
+          if (!taskId || !targetCol) return;
+          const t = tasks.find(x => x.id === taskId);
+          if (!t || (t.status || 'open') === targetCol) return;
+          const patch = { status: targetCol, updatedAt: serverTimestamp() };
+          if (targetCol === 'done') {
+            patch.completedAt = serverTimestamp();
+            patch.completedBy = currentUser.uid;
+            if (t.recurrence && t.recurrence !== 'none' && t.dueDate) {
+              const nextDue = advanceRecurrence(t.dueDate, t.recurrence);
+              if (nextDue) {
+                const clone = {
+                  ...t, status: 'open',
+                  dueDate: Timestamp.fromDate(nextDue),
+                  completedAt: null, completedBy: null,
+                  subtasks: (t.subtasks || []).map(s => ({ ...s, done: false, doneAt: null })),
+                  createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+                };
+                delete clone.id; delete clone._source;
+                try { await addDoc(collection(db, 'tasks'), clone); } catch (err) { console.error('recurrence clone failed', err); }
+              }
+            }
+          } else if ((t.status || 'open') === 'done' && targetCol !== 'done') {
+            patch.completedAt = null;
+            patch.completedBy = null;
+          }
+          try { await updateDoc(doc(db, 'tasks', taskId), patch); }
+          catch (err) { console.error('task DnD update failed', err); }
+        },
+      });
+    });
+  }
 }
 
 function compareTasks(a, b) {
