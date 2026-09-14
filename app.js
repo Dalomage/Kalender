@@ -1447,6 +1447,14 @@ function renderTaskCard(t) {
           ${due ? `<span class="task-due ${due.overdue ? 'task-due-overdue' : ''} ${due.today ? 'task-due-today' : ''}">📅 ${escapeHtml(due.label)}${due.overdue ? ' · überfällig' : ''}</span>` : ''}
           ${assigneeName ? `<span class="task-assignee">👤 ${escapeHtml(assigneeName)}</span>` : ''}
           ${subTotal > 0 ? `<span class="task-subs">☑ ${subTotal - subOpen}/${subTotal}</span>` : ''}
+          ${(() => {
+            if (!t.linkedListId) return '';
+            const ll = lists.find(l => l.id === t.linkedListId);
+            if (!ll) return `<span class="task-linked-list" title="Verknüpfte Liste">🛒 (Liste)</span>`;
+            const openN = ll.openCount || 0;
+            const state = openN === 0 ? '✅ fertig' : `${openN} offen`;
+            return `<span class="task-linked-list" title="Verknüpfte Liste">${escapeHtml(ll.icon || '🛒')} ${escapeHtml(ll.name)} · ${state}</span>`;
+          })()}
           ${t.recurrence && t.recurrence !== 'none' ? `<span class="task-rec">🔁</span>` : ''}
           ${t.linkedEventId ? `<span class="task-linked" title="Mit Termin verknüpft">🔗</span>` : ''}
         </div>
@@ -1532,6 +1540,7 @@ function openTaskModal(existing, hh) {
     title: '', description: '', status: 'open', priority: 'normal',
     dueDate: null, dueTime: null, assignee: null, tags: [],
     reminderMinutes: null, recurrence: 'none', linkedEventId: null,
+    linkedListId: null, autoStatusFromList: true,
     subtasks: [],
   };
   const overlay = document.createElement('div');
@@ -1636,6 +1645,25 @@ function openTaskModal(existing, hh) {
           <option value="__loading__" disabled>Termine werden geladen …</option>
         </select>
         <div class="field-hint">Optional — verknüpft die Aufgabe mit einem Termin (z.B. „Vorbereitung für Meeting Mo 10 Uhr"). Zeigt Termine der nächsten 60 Tage.</div>
+      </div>
+
+      <div class="field">
+        <label>Verknüpfte Liste</label>
+        <select id="task-linked-list">
+          <option value="">— keine —</option>
+          ${(hh ? lists.filter(l => l.householdId === hh.id) : lists.filter(l => !l.householdId))
+            .sort((a,b) => (a.order ?? 999) - (b.order ?? 999))
+            .map(l => `
+              <option value="${l.id}" ${t.linkedListId === l.id ? 'selected' : ''}>
+                ${escapeHtml(l.icon || '📝')} ${escapeHtml(l.name)}
+              </option>
+            `).join('')}
+        </select>
+        <label class="task-auto-sync-toggle">
+          <input type="checkbox" id="task-auto-list" ${(t.autoStatusFromList !== false) ? 'checked' : ''} />
+          Status automatisch nach Liste setzen
+        </label>
+        <div class="field-hint">Erstes Item abgehakt → „In Arbeit". Letztes offenes Item abgehakt → „Erledigt". Wird ein Item wieder aufgemacht, bleibt der Status.</div>
       </div>
 
       <div class="field">
@@ -1749,6 +1777,8 @@ function openTaskModal(existing, hh) {
     const recurrence = document.getElementById('task-recurrence').value;
     let linkedEventId = document.getElementById('task-linked-event').value || null;
     if (linkedEventId === '__loading__') linkedEventId = existing?.linkedEventId || null;
+    const linkedListId = document.getElementById('task-linked-list').value || null;
+    const autoStatusFromList = document.getElementById('task-auto-list').checked;
 
     const subtasks = Array.from(subsWrap.querySelectorAll('.task-sub-edit-row')).map(row => ({
       id: row.dataset.subId,
@@ -1767,8 +1797,9 @@ function openTaskModal(existing, hh) {
     const data = {
       title, description, status, priority,
       dueDate, dueTime: dueTimeVal, assignee, tags,
-      reminderMinutes, recurrence, linkedEventId, subtasks,
-      updatedAt: now,
+      reminderMinutes, recurrence, linkedEventId,
+      linkedListId, autoStatusFromList,
+      subtasks, updatedAt: now,
     };
     if (isNew) {
       data.owner = currentUser.uid;
@@ -3543,8 +3574,53 @@ async function toggleItem(list, itemId, done) {
         showToast('Liste geschafft! 🎉', { type: 'success' });
       }
     }
+    // Verknüpfte Aufgaben ggf. auto-status setzen (nur beim Abhaken, nie beim Wieder-Öffnen)
+    syncTasksFromListToggle(list, itemId, done).catch(err => console.error('task sync failed', err));
   } catch (err) {
     alert('Fehler: ' + err.message);
+  }
+}
+
+async function syncTasksFromListToggle(list, itemId, done) {
+  if (!done) return; // Regel: Un-Checks regressieren nie
+  const linked = tasks.filter(t => t.linkedListId === list.id && t.autoStatusFromList !== false);
+  if (!linked.length) return;
+  const total = listItems.length;
+  if (total === 0) return;
+  const otherDone = listItems.filter(i => i.id !== itemId && i.done).length;
+  const doneCountAfter = otherDone + 1;
+  const isAllDone = doneCountAfter >= total;
+  const wasFirstDone = otherDone === 0;
+  for (const t of linked) {
+    const cur = t.status || 'open';
+    let target = null;
+    if (isAllDone && cur !== 'done') target = 'done';
+    else if (wasFirstDone && cur === 'open') target = 'doing';
+    if (!target) continue;
+    const patch = { status: target, updatedAt: serverTimestamp() };
+    if (target === 'done') {
+      patch.completedAt = serverTimestamp();
+      patch.completedBy = currentUser.uid;
+      if (t.recurrence && t.recurrence !== 'none' && t.dueDate) {
+        const nextDue = advanceRecurrence(t.dueDate, t.recurrence);
+        if (nextDue) {
+          const clone = {
+            ...t, status: 'open',
+            dueDate: Timestamp.fromDate(nextDue),
+            completedAt: null, completedBy: null,
+            subtasks: (t.subtasks || []).map(s => ({ ...s, done: false, doneAt: null })),
+            createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+          };
+          delete clone.id; delete clone._source;
+          try { await addDoc(collection(db, 'tasks'), clone); } catch (e) { console.error('recurrence clone failed', e); }
+        }
+      }
+    }
+    try {
+      await updateDoc(doc(db, 'tasks', t.id), patch);
+      const label = target === 'done' ? 'Erledigt' : 'In Arbeit';
+      showToast(`Aufgabe „${t.title}" → ${label}`, { type: 'success' });
+    } catch (err) { console.error('task auto-sync failed', err); }
   }
 }
 

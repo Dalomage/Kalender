@@ -1954,3 +1954,32 @@ body.weekday-accents .event-row[data-weekday="0"] { border-left-color: #ec4899; 
 .dash-task-row.overdue { border-color: var(--danger); }
 .dash-task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-task-due { font-size: 0.75rem; color: var(--muted); flex-shrink: 0; }
+
+/* Task-Modal: Auto-Sync-Toggle bei "Verknüpfte Liste" */
+.task-auto-sync-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.task-auto-sync-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+/* Verknüpfte-Liste-Badge auf Task-Karte */
+.task-linked-list {
+  background: var(--surface2);
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
