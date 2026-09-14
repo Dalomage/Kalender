@@ -14,6 +14,11 @@ import {
   deleteField, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
 
+// ── Worker (Rezept-Import & Foto-Zutaten) ────────────────────
+// Nach Worker-Deploy (siehe worker/README.md) die tatsächliche URL eintragen.
+// Solange leer, greift der Client-Fallback über Community-Proxies.
+const WORKER_URL = '';  // z.B. 'https://kalender-api.<subdomain>.workers.dev'
+
 // ── Firebase init ─────────────────────────────────────────────
 const configOk = firebaseConfig.apiKey && firebaseConfig.apiKey !== 'REPLACE_ME';
 let app, auth, db;
@@ -58,6 +63,7 @@ let notes = [];
 let records = [];
 let persons = [];
 let mealplans = [];
+let tasks = [];
 const unsubs = {
   households: null,
   calendarsDirect: null,
@@ -69,6 +75,8 @@ const unsubs = {
   recordsHousehold: null,
   personsHousehold: null,
   mealplansHousehold: null,
+  tasksDirect: null,
+  tasksHousehold: null,
   events: null,
   items: null
 };
@@ -76,8 +84,9 @@ let fcInstance = null;
 
 // aktuelle Ansicht: 'home' | 'household' | 'calendar' | 'list'
 let view = 'home';
-let homeTab = 'dashboard'; // 'dashboard' | 'calendars' | 'lists' | 'notes'
-let householdTab = 'dashboard'; // 'dashboard' | 'calendars' | 'lists' | 'notes' | 'members'
+let homeTab = 'dashboard'; // 'dashboard' | 'calendars' | 'lists' | 'tasks' | 'notes'
+let householdTab = 'dashboard'; // 'dashboard' | 'calendars' | 'lists' | 'tasks' | 'notes' | 'members'
+let tasksBoardTab = 'open'; // 'open' | 'doing' | 'done' — nur auf schmalen Displays relevant
 let currentHousehold = null;
 let currentCalendar = null;
 let currentList = null;
@@ -152,6 +161,7 @@ function stopAll() {
   records = [];
   persons = [];
   mealplans = [];
+  tasks = [];
   currentHousehold = null;
   currentCalendar = null;
   currentList = null;
@@ -485,6 +495,16 @@ function startSubscriptions() {
     },
     err => console.error('notes direct sub failed:', err)
   );
+
+  // Aufgaben, in denen ich direkt Mitglied bin
+  unsubs.tasksDirect = onSnapshot(
+    query(collection(db, 'tasks'), where(`members.${currentUser.uid}`, '==', 'owner')),
+    snap => {
+      mergeTasks(snap, 'direct');
+      renderCurrent();
+    },
+    err => console.error('tasks direct sub failed:', err)
+  );
 }
 
 function resubscribeHouseholdCalendars() {
@@ -494,11 +514,13 @@ function resubscribeHouseholdCalendars() {
   if (unsubs.recordsHousehold) { unsubs.recordsHousehold(); unsubs.recordsHousehold = null; }
   if (unsubs.personsHousehold) { unsubs.personsHousehold(); unsubs.personsHousehold = null; }
   if (unsubs.mealplansHousehold) { unsubs.mealplansHousehold(); unsubs.mealplansHousehold = null; }
+  if (unsubs.tasksHousehold) { unsubs.tasksHousehold(); unsubs.tasksHousehold = null; }
   const hhIds = households.map(h => h.id);
   if (hhIds.length === 0) {
     calendars = calendars.filter(c => c._source !== 'household');
     lists = lists.filter(l => l._source !== 'household');
     notes = notes.filter(n => n._source !== 'household');
+    tasks = tasks.filter(t => t._source !== 'household');
     records = [];
     persons = [];
     mealplans = [];
@@ -518,6 +540,11 @@ function resubscribeHouseholdCalendars() {
     query(collection(db, 'notes'), where('householdId', 'in', hhIds.slice(0, 30))),
     snap => { mergeNotes(snap, 'household'); renderCurrent(); },
     err => console.error('notes household sub failed:', err)
+  );
+  unsubs.tasksHousehold = onSnapshot(
+    query(collection(db, 'tasks'), where('householdId', 'in', hhIds.slice(0, 30))),
+    snap => { mergeTasks(snap, 'household'); renderCurrent(); },
+    err => console.error('tasks household sub failed:', err)
   );
   unsubs.recordsHousehold = onSnapshot(
     query(collection(db, 'records'), where('householdId', 'in', hhIds.slice(0, 30))),
@@ -578,6 +605,13 @@ function mergeNotes(snap, source) {
   snap.forEach(d => {
     if (notes.find(n => n.id === d.id)) return;
     notes.push({ id: d.id, _source: source, ...d.data() });
+  });
+}
+function mergeTasks(snap, source) {
+  tasks = tasks.filter(t => t._source !== source);
+  snap.forEach(d => {
+    if (tasks.find(t => t.id === d.id)) return;
+    tasks.push({ id: d.id, _source: source, ...d.data() });
   });
 }
 
@@ -1147,6 +1181,7 @@ function renderHome() {
         <button data-tab="dashboard" class="${homeTab === 'dashboard' ? 'active' : ''}">📊 Dashboard</button>
         <button data-tab="calendars" class="${homeTab === 'calendars' ? 'active' : ''}">📅 Kalender</button>
         <button data-tab="lists" class="${homeTab === 'lists' ? 'active' : ''}">📝 Listen</button>
+        <button data-tab="tasks" class="${homeTab === 'tasks' ? 'active' : ''}">✅ Aufgaben</button>
         <button data-tab="notes" class="${homeTab === 'notes' ? 'active' : ''}">📌 Notizen</button>
       </div>
 
@@ -1174,6 +1209,7 @@ function renderHomeTab() {
   if (homeTab === 'dashboard') renderDashboard(content);
   else if (homeTab === 'calendars') renderCalendarsTab(content);
   else if (homeTab === 'lists') renderListsTab(content);
+  else if (homeTab === 'tasks') renderTasksTab(content);
   else if (homeTab === 'notes') renderNotesTab(content);
 }
 
@@ -1207,6 +1243,560 @@ function filterNotes(list, term) {
     return inText || inTags;
   });
 }
+
+// ── Aufgaben ─────────────────────────────────────────────────
+
+const TASK_PRIORITY_META = {
+  low:    { label: 'Niedrig', dot: '⚪' },
+  normal: { label: 'Normal',  dot: '🟡' },
+  high:   { label: 'Hoch',    dot: '🔴' },
+};
+const TASK_STATUSES = [
+  { key: 'open',  label: 'Offen',     emoji: '📥' },
+  { key: 'doing', label: 'In Arbeit', emoji: '⚙️' },
+  { key: 'done',  label: 'Erledigt',  emoji: '✅' },
+];
+const TASK_RECURRENCES = [
+  { key: 'none',    label: 'Keine' },
+  { key: 'daily',   label: 'Täglich' },
+  { key: 'weekly',  label: 'Wöchentlich' },
+  { key: 'monthly', label: 'Monatlich' },
+  { key: 'yearly',  label: 'Jährlich' },
+];
+
+function renderTasksTab(content, hh) {
+  const scoped = hh
+    ? tasks.filter(t => t.householdId === hh.id)
+    : tasks.filter(t => !t.householdId);
+  const scopeLabel = hh ? 'Aufgaben in diesem Haushalt' : 'Persönliche Aufgaben';
+
+  const openCount = scoped.filter(t => (t.status || 'open') === 'open').length;
+  const doingCount = scoped.filter(t => t.status === 'doing').length;
+  const doneCount = scoped.filter(t => t.status === 'done').length;
+
+  content.innerHTML = `
+    <div class="section-title">
+      <span>${scopeLabel}</span>
+      <button class="btn btn-small" id="new-task-btn">+ Neue Aufgabe</button>
+    </div>
+    <div class="task-board-tabs">
+      <button data-taskstatus="open" class="${tasksBoardTab === 'open' ? 'active' : ''}">📥 Offen (${openCount})</button>
+      <button data-taskstatus="doing" class="${tasksBoardTab === 'doing' ? 'active' : ''}">⚙️ In Arbeit (${doingCount})</button>
+      <button data-taskstatus="done" class="${tasksBoardTab === 'done' ? 'active' : ''}">✅ Erledigt (${doneCount})</button>
+    </div>
+    <div class="task-board" id="task-board"></div>
+  `;
+  $('new-task-btn').addEventListener('click', () => openTaskModal(null, hh));
+  content.querySelectorAll('[data-taskstatus]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      tasksBoardTab = btn.dataset.taskstatus;
+      renderTasksTab(content, hh);
+    });
+  });
+
+  renderTaskBoard(scoped, hh);
+  ensureNamesFor(scoped.map(t => t.assignee).filter(Boolean), () => renderTaskBoard(scoped, hh));
+}
+
+function renderTaskBoard(scoped, hh) {
+  const board = $('task-board');
+  if (!board) return;
+  board.innerHTML = TASK_STATUSES.map(s => {
+    const items = scoped
+      .filter(t => (t.status || 'open') === s.key)
+      .sort(compareTasks);
+    const active = tasksBoardTab === s.key ? 'task-col-active' : '';
+    return `
+      <div class="task-col ${active}" data-col="${s.key}">
+        <div class="task-col-header">
+          <span>${s.emoji} ${s.label}</span>
+          <span class="task-col-count">${items.length}</span>
+        </div>
+        <div class="task-col-body">
+          ${items.length ? items.map(t => renderTaskCard(t)).join('') : `<div class="task-col-empty">Keine Aufgaben</div>`}
+        </div>
+      </div>
+    `;
+  }).join('');
+  board.querySelectorAll('[data-task-id]').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('.task-status-btn') || e.target.closest('.task-subtask-check')) return;
+      const t = tasks.find(x => x.id === el.dataset.taskId);
+      if (t) openTaskModal(t, hh);
+    });
+  });
+  board.querySelectorAll('.task-status-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      cycleTaskStatus(btn.dataset.taskId);
+    });
+  });
+  board.querySelectorAll('.task-subtask-check').forEach(cb => {
+    cb.addEventListener('click', e => e.stopPropagation());
+    cb.addEventListener('change', e => {
+      const taskId = cb.dataset.taskId;
+      const subId = cb.dataset.subId;
+      toggleSubtask(taskId, subId, cb.checked);
+    });
+  });
+}
+
+function compareTasks(a, b) {
+  const dueA = taskDueSortKey(a);
+  const dueB = taskDueSortKey(b);
+  if (dueA !== dueB) return dueA - dueB;
+  const prioA = ['high','normal','low'].indexOf(a.priority || 'normal');
+  const prioB = ['high','normal','low'].indexOf(b.priority || 'normal');
+  if (prioA !== prioB) return prioA - prioB;
+  return (a.title || '').localeCompare(b.title || '', 'de');
+}
+
+function taskDueSortKey(t) {
+  if (!t.dueDate) return Number.POSITIVE_INFINITY;
+  const d = t.dueDate.seconds ? new Date(t.dueDate.seconds * 1000) : new Date(t.dueDate);
+  return d.getTime();
+}
+
+function taskDueInfo(t) {
+  if (!t.dueDate) return null;
+  const d = t.dueDate.seconds ? new Date(t.dueDate.seconds * 1000) : new Date(t.dueDate);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dayOnly = new Date(d); dayOnly.setHours(0,0,0,0);
+  const diffDays = Math.round((dayOnly.getTime() - today.getTime()) / 86400000);
+  const timeStr = t.dueTime ? ' ' + t.dueTime : '';
+  let label;
+  if (diffDays === 0) label = 'Heute' + timeStr;
+  else if (diffDays === 1) label = 'Morgen' + timeStr;
+  else if (diffDays === -1) label = 'Gestern' + timeStr;
+  else if (diffDays > 1 && diffDays < 7) label = d.toLocaleDateString('de-DE', { weekday: 'short' }) + timeStr;
+  else label = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) + timeStr;
+  const overdue = diffDays < 0 && t.status !== 'done';
+  const today0 = diffDays === 0 && t.status !== 'done';
+  return { label, overdue, today: today0 };
+}
+
+function renderTaskCard(t) {
+  const prio = TASK_PRIORITY_META[t.priority || 'normal'];
+  const due = taskDueInfo(t);
+  const subOpen = (t.subtasks || []).filter(s => !s.done).length;
+  const subTotal = (t.subtasks || []).length;
+  const assigneeName = t.assignee ? nameFor(t.assignee) : '';
+  const nextStatus = t.status === 'open' ? 'doing' : (t.status === 'doing' ? 'done' : 'open');
+  const nextStatusEmoji = TASK_STATUSES.find(s => s.key === nextStatus).emoji;
+  const isDone = t.status === 'done';
+  return `
+    <div class="task-card ${isDone ? 'task-done' : ''} ${due?.overdue ? 'task-overdue' : ''}" data-task-id="${t.id}">
+      <button class="task-status-btn" data-task-id="${t.id}" title="Status wechseln">
+        ${nextStatusEmoji}
+      </button>
+      <div class="task-card-body">
+        <div class="task-card-title">
+          <span class="task-prio" title="${prio.label}">${prio.dot}</span>
+          ${escapeHtml(t.title || '(ohne Titel)')}
+        </div>
+        <div class="task-card-meta">
+          ${due ? `<span class="task-due ${due.overdue ? 'task-due-overdue' : ''} ${due.today ? 'task-due-today' : ''}">📅 ${escapeHtml(due.label)}${due.overdue ? ' · überfällig' : ''}</span>` : ''}
+          ${assigneeName ? `<span class="task-assignee">👤 ${escapeHtml(assigneeName)}</span>` : ''}
+          ${subTotal > 0 ? `<span class="task-subs">☑ ${subTotal - subOpen}/${subTotal}</span>` : ''}
+          ${t.recurrence && t.recurrence !== 'none' ? `<span class="task-rec">🔁</span>` : ''}
+          ${t.linkedEventId ? `<span class="task-linked" title="Mit Termin verknüpft">🔗</span>` : ''}
+        </div>
+        ${(t.tags || []).length ? `
+          <div class="task-card-tags">
+            ${t.tags.map(tag => `<span class="task-tag">#${escapeHtml(tag)}</span>`).join('')}
+          </div>
+        ` : ''}
+        ${subTotal > 0 && !isDone ? `
+          <div class="task-card-subs">
+            ${(t.subtasks || []).slice(0, 5).map(s => `
+              <label class="task-subrow">
+                <input type="checkbox" class="task-subtask-check" data-task-id="${t.id}" data-sub-id="${s.id}" ${s.done ? 'checked' : ''} />
+                <span class="${s.done ? 'task-sub-done' : ''}">${escapeHtml(s.text)}</span>
+              </label>
+            `).join('')}
+            ${subTotal > 5 ? `<div class="task-sub-more">+ ${subTotal - 5} weitere</div>` : ''}
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
+async function cycleTaskStatus(taskId) {
+  const t = tasks.find(x => x.id === taskId);
+  if (!t) return;
+  const cur = t.status || 'open';
+  const next = cur === 'open' ? 'doing' : (cur === 'doing' ? 'done' : 'open');
+  const patch = { status: next, updatedAt: serverTimestamp() };
+  if (next === 'done') {
+    patch.completedAt = serverTimestamp();
+    patch.completedBy = currentUser.uid;
+    // Bei Wiederholung: neue offene Aufgabe für nächsten Zyklus anlegen
+    if (t.recurrence && t.recurrence !== 'none' && t.dueDate) {
+      const nextDue = advanceRecurrence(t.dueDate, t.recurrence);
+      if (nextDue) {
+        const clone = {
+          ...t,
+          status: 'open',
+          dueDate: Timestamp.fromDate(nextDue),
+          completedAt: null,
+          completedBy: null,
+          subtasks: (t.subtasks || []).map(s => ({ ...s, done: false, doneAt: null })),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+        delete clone.id;
+        delete clone._source;
+        try { await addDoc(collection(db, 'tasks'), clone); } catch (e) { console.error('recurrence clone failed', e); }
+      }
+    }
+  } else if (cur === 'done' && next === 'open') {
+    patch.completedAt = null;
+    patch.completedBy = null;
+  }
+  try { await updateDoc(doc(db, 'tasks', taskId), patch); } catch (e) { console.error('task status update failed', e); }
+}
+
+function advanceRecurrence(dueDate, kind) {
+  const d = dueDate.seconds ? new Date(dueDate.seconds * 1000) : new Date(dueDate);
+  if (isNaN(d)) return null;
+  if (kind === 'daily') d.setDate(d.getDate() + 1);
+  else if (kind === 'weekly') d.setDate(d.getDate() + 7);
+  else if (kind === 'monthly') d.setMonth(d.getMonth() + 1);
+  else if (kind === 'yearly') d.setFullYear(d.getFullYear() + 1);
+  else return null;
+  return d;
+}
+
+async function toggleSubtask(taskId, subId, done) {
+  const t = tasks.find(x => x.id === taskId);
+  if (!t) return;
+  const subtasks = (t.subtasks || []).map(s => s.id === subId ? { ...s, done, doneAt: done ? Date.now() : null } : s);
+  try {
+    await updateDoc(doc(db, 'tasks', taskId), { subtasks, updatedAt: serverTimestamp() });
+  } catch (e) { console.error('subtask toggle failed', e); }
+}
+
+function openTaskModal(existing, hh) {
+  const isNew = !existing;
+  const t = existing || {
+    title: '', description: '', status: 'open', priority: 'normal',
+    dueDate: null, dueTime: null, assignee: null, tags: [],
+    reminderMinutes: null, recurrence: 'none', linkedEventId: null,
+    subtasks: [],
+  };
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+
+  // Datum-Feld
+  let dueDateStr = '';
+  if (t.dueDate) {
+    const d = t.dueDate.seconds ? new Date(t.dueDate.seconds * 1000) : new Date(t.dueDate);
+    dueDateStr = d.toISOString().slice(0, 10);
+  }
+
+  const memberUids = hh ? Object.keys(hh.members || {}) : [currentUser.uid];
+  const hhPersons = hh ? persons.filter(p => p.householdId === hh.id) : [];
+
+  // Termine für Verknüpfung — werden async nach dem Öffnen nachgeladen
+  const linkableEvents = [];
+
+  overlay.innerHTML = `
+    <div class="modal modal-wide">
+      <h2>${isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten'}${hh ? ' <span class="cal-hh-badge">🏠 ' + escapeHtml(hh.name) + '</span>' : ''}</h2>
+
+      <div class="field">
+        <label>Titel</label>
+        <input type="text" id="task-title" value="${escapeHtml(t.title || '')}" maxlength="120" required />
+      </div>
+
+      <div class="field">
+        <label>Beschreibung</label>
+        <textarea id="task-desc" rows="4" placeholder="Details, Kontext, Links …">${escapeHtml(t.description || '')}</textarea>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Fällig am</label>
+          <input type="date" id="task-due-date" value="${dueDateStr}" />
+        </div>
+        <div class="field">
+          <label>Uhrzeit</label>
+          <input type="time" id="task-due-time" value="${escapeHtml(t.dueTime || '')}" />
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Priorität</label>
+          <select id="task-priority">
+            ${['low','normal','high'].map(p => `
+              <option value="${p}" ${(t.priority || 'normal') === p ? 'selected' : ''}>
+                ${TASK_PRIORITY_META[p].dot} ${TASK_PRIORITY_META[p].label}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="task-status">
+            ${TASK_STATUSES.map(s => `
+              <option value="${s.key}" ${(t.status || 'open') === s.key ? 'selected' : ''}>
+                ${s.emoji} ${s.label}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Zuständig</label>
+        <select id="task-assignee">
+          <option value="">— keine Zuweisung —</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Tags (kommagetrennt, ohne #)</label>
+        <input type="text" id="task-tags" value="${escapeHtml((t.tags || []).join(', '))}" placeholder="arbeit, projekt-x, dringend" />
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Erinnerung</label>
+          <select id="task-reminder">
+            <option value="">Keine</option>
+            <option value="10" ${t.reminderMinutes === 10 ? 'selected' : ''}>10 Min vorher</option>
+            <option value="30" ${t.reminderMinutes === 30 ? 'selected' : ''}>30 Min vorher</option>
+            <option value="60" ${t.reminderMinutes === 60 ? 'selected' : ''}>1 Stunde vorher</option>
+            <option value="1440" ${t.reminderMinutes === 1440 ? 'selected' : ''}>1 Tag vorher</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Wiederholung</label>
+          <select id="task-recurrence">
+            ${TASK_RECURRENCES.map(r => `<option value="${r.key}" ${(t.recurrence || 'none') === r.key ? 'selected' : ''}>${r.label}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Verknüpfter Termin</label>
+        <select id="task-linked-event">
+          <option value="">— keiner —</option>
+          <option value="__loading__" disabled>Termine werden geladen …</option>
+        </select>
+        <div class="field-hint">Optional — verknüpft die Aufgabe mit einem Termin (z.B. „Vorbereitung für Meeting Mo 10 Uhr"). Zeigt Termine der nächsten 60 Tage.</div>
+      </div>
+
+      <div class="field">
+        <label>Unteraufgaben</label>
+        <div id="task-subtasks-wrap">
+          ${(t.subtasks || []).map(s => renderSubtaskRow(s)).join('')}
+        </div>
+        <div class="task-subtask-add">
+          <input type="text" id="task-sub-new" placeholder="+ Unteraufgabe hinzufügen … (Enter)" maxlength="200" />
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        ${!isNew ? '<button class="btn btn-danger btn-small" id="task-delete-btn">Löschen</button>' : '<span></span>'}
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
+          <button class="btn" id="save-btn">${isNew ? 'Anlegen' : 'Speichern'}</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Assignee-Optionen befüllen
+  const assigneeSel = document.getElementById('task-assignee');
+  memberUids.forEach(uid => {
+    const opt = document.createElement('option');
+    opt.value = uid;
+    opt.textContent = '👤 ' + nameFor(uid);
+    if (t.assignee === uid) opt.selected = true;
+    assigneeSel.appendChild(opt);
+  });
+  hhPersons.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = (p.avatar || '👶') + ' ' + p.name;
+    if (t.assignee === p.id) opt.selected = true;
+    assigneeSel.appendChild(opt);
+  });
+  ensureNamesFor(memberUids, () => {
+    memberUids.forEach(uid => {
+      const opt = assigneeSel.querySelector(`option[value="${uid}"]`);
+      if (opt) opt.textContent = '👤 ' + nameFor(uid);
+    });
+  });
+
+  // Subtask-Handling
+  const subsWrap = document.getElementById('task-subtasks-wrap');
+  wireSubtaskRows(subsWrap);
+  document.getElementById('task-sub-new').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const val = e.target.value.trim();
+      if (!val) return;
+      const id = 's_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      subsWrap.insertAdjacentHTML('beforeend', renderSubtaskRow({ id, text: val, done: false }));
+      wireSubtaskRows(subsWrap);
+      e.target.value = '';
+    }
+  });
+
+  document.getElementById('task-title').focus();
+  document.getElementById('cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  // Termine async nachladen
+  loadLinkableEvents(hh).then(events => {
+    const sel = document.getElementById('task-linked-event');
+    if (!sel || !document.body.contains(sel)) return;
+    const loadingOpt = sel.querySelector('option[value="__loading__"]');
+    if (loadingOpt) loadingOpt.remove();
+    if (!events.length) {
+      const opt = document.createElement('option');
+      opt.disabled = true;
+      opt.textContent = 'keine Termine in den nächsten 60 Tagen';
+      sel.appendChild(opt);
+      return;
+    }
+    events.forEach(e => {
+      const opt = document.createElement('option');
+      opt.value = e.id;
+      opt.textContent = `${e.dateLabel} · ${e.title}`;
+      if (t.linkedEventId === e.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  });
+
+  if (!isNew) {
+    document.getElementById('task-delete-btn').addEventListener('click', async () => {
+      if (!confirm('Aufgabe wirklich löschen?')) return;
+      try {
+        await deleteDoc(doc(db, 'tasks', existing.id));
+        overlay.remove();
+        showToast('Aufgabe gelöscht', { type: 'success' });
+      } catch (e) { console.error(e); alert('Löschen fehlgeschlagen'); }
+    });
+  }
+
+  document.getElementById('save-btn').addEventListener('click', async () => {
+    const title = document.getElementById('task-title').value.trim();
+    if (!title) { alert('Titel fehlt'); return; }
+    const description = document.getElementById('task-desc').value.trim();
+    const dueDateVal = document.getElementById('task-due-date').value;
+    const dueTimeVal = document.getElementById('task-due-time').value || null;
+    const priority = document.getElementById('task-priority').value;
+    const status = document.getElementById('task-status').value;
+    const assignee = document.getElementById('task-assignee').value || null;
+    const tagsRaw = document.getElementById('task-tags').value;
+    const tags = tagsRaw.split(',').map(s => s.trim().replace(/^#/, '')).filter(Boolean).slice(0, 12);
+    const reminderMinutes = document.getElementById('task-reminder').value ? parseInt(document.getElementById('task-reminder').value, 10) : null;
+    const recurrence = document.getElementById('task-recurrence').value;
+    let linkedEventId = document.getElementById('task-linked-event').value || null;
+    if (linkedEventId === '__loading__') linkedEventId = existing?.linkedEventId || null;
+
+    const subtasks = Array.from(subsWrap.querySelectorAll('.task-sub-edit-row')).map(row => ({
+      id: row.dataset.subId,
+      text: row.querySelector('input[type="text"]').value.trim(),
+      done: row.querySelector('input[type="checkbox"]').checked,
+      doneAt: row.querySelector('input[type="checkbox"]').checked ? (row.dataset.doneAt ? parseInt(row.dataset.doneAt, 10) : Date.now()) : null,
+    })).filter(s => s.text).slice(0, 20);
+
+    let dueDate = null;
+    if (dueDateVal) {
+      const d = new Date(dueDateVal + 'T00:00:00');
+      if (!isNaN(d)) dueDate = Timestamp.fromDate(d);
+    }
+
+    const now = serverTimestamp();
+    const data = {
+      title, description, status, priority,
+      dueDate, dueTime: dueTimeVal, assignee, tags,
+      reminderMinutes, recurrence, linkedEventId, subtasks,
+      updatedAt: now,
+    };
+    if (isNew) {
+      data.owner = currentUser.uid;
+      data.createdBy = currentUser.uid;
+      data.createdAt = now;
+      data.householdId = hh ? hh.id : null;
+      data.members = { [currentUser.uid]: 'owner' };
+    }
+    if (status === 'done' && existing?.status !== 'done') {
+      data.completedAt = now;
+      data.completedBy = currentUser.uid;
+    } else if (status !== 'done' && existing?.status === 'done') {
+      data.completedAt = null;
+      data.completedBy = null;
+    }
+
+    overlay.remove(); // sofort schließen — Write läuft im Hintergrund
+    try {
+      if (isNew) await addDoc(collection(db, 'tasks'), data);
+      else await updateDoc(doc(db, 'tasks', existing.id), data);
+      showToast(isNew ? 'Aufgabe angelegt' : 'Aufgabe gespeichert', { type: 'success' });
+    } catch (e) {
+      console.error('task save failed', e);
+      alert('Speichern fehlgeschlagen: ' + e.message);
+    }
+  });
+}
+
+function renderSubtaskRow(s) {
+  return `
+    <div class="task-sub-edit-row" data-sub-id="${escapeHtml(s.id)}" ${s.doneAt ? `data-done-at="${s.doneAt}"` : ''}>
+      <input type="checkbox" ${s.done ? 'checked' : ''} />
+      <input type="text" value="${escapeHtml(s.text || '')}" maxlength="200" />
+      <button type="button" class="task-sub-del" title="Entfernen">✕</button>
+    </div>
+  `;
+}
+
+function wireSubtaskRows(wrap) {
+  wrap.querySelectorAll('.task-sub-del').forEach(btn => {
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', () => btn.closest('.task-sub-edit-row').remove());
+  });
+}
+
+async function loadLinkableEvents(hh) {
+  const cals = hh
+    ? calendars.filter(c => c.householdId === hh.id)
+    : calendars.filter(c => !c.householdId);
+  if (!cals.length) return [];
+  const now = Date.now();
+  const from = now - 7 * 86400000;
+  const to = now + 60 * 86400000;
+  const results = [];
+  await Promise.all(cals.map(async c => {
+    try {
+      const snap = await getDocs(collection(db, 'calendars', c.id, 'events'));
+      snap.forEach(d => {
+        const data = d.data();
+        const ts = data.start?.seconds ? data.start.seconds * 1000 : new Date(data.start).getTime();
+        if (isNaN(ts) || ts < from || ts > to) return;
+        results.push({
+          id: d.id,
+          title: data.title || '(ohne Titel)',
+          start: ts,
+          dateLabel: new Date(ts).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })
+            + (data.allDay ? '' : ' ' + new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })),
+        });
+      });
+    } catch (e) { console.warn('event fetch for cal', c.id, 'failed', e); }
+  }));
+  results.sort((a, b) => a.start - b.start);
+  return results.slice(0, 100);
+}
+
+// ── Ende Aufgaben ────────────────────────────────────────────
 
 function renderCalendarsTab(content) {
   const personalCals = calendars.filter(c => !c.householdId);
@@ -1304,6 +1894,11 @@ async function renderDashboard(content, scope = null) {
           <div id="dash-lists"></div>
         </section>
       </div>
+
+      <div id="dash-tasks-section" style="display:none;margin-top:1.5rem;">
+        <div class="section-title"><span>✅ Fällige Aufgaben (nächste 7 Tage)</span></div>
+        <div id="dash-tasks" class="dash-tasks"></div>
+      </div>
     `;
     updateDashboardClock();
     if (dashboardClockTimer) clearInterval(dashboardClockTimer);
@@ -1324,6 +1919,39 @@ async function renderDashboard(content, scope = null) {
 
   if (favNotes.length) {
     renderNoteCards($('dash-fav-notes'), favNotes, '');
+  }
+
+  // Fällige Aufgaben (Scope: persönlich oder Haushalt)
+  const dueTasks = tasks
+    .filter(tt => tt.status !== 'done' && tt.dueDate)
+    .filter(tt => scope ? tt.householdId === scope.id : !tt.householdId)
+    .map(tt => ({ ...tt, _due: taskDueSortKey(tt) }))
+    .filter(tt => tt._due <= Date.now() + 7 * 86400000)
+    .sort((a, b) => a._due - b._due)
+    .slice(0, 6);
+  const tasksSection = $('dash-tasks-section');
+  if (tasksSection) tasksSection.style.display = dueTasks.length ? '' : 'none';
+  const tel = $('dash-tasks');
+  if (tel && dueTasks.length) {
+    tel.innerHTML = dueTasks.map(tt => {
+      const due = taskDueInfo(tt);
+      const prio = TASK_PRIORITY_META[tt.priority || 'normal'];
+      return `
+        <div class="dash-task-row ${due?.overdue ? 'overdue' : ''}" data-task-id="${tt.id}">
+          <span class="task-prio">${prio.dot}</span>
+          <span class="dash-task-title">${escapeHtml(tt.title || '(ohne Titel)')}</span>
+          <span class="dash-task-due ${due?.overdue ? 'task-due-overdue' : ''} ${due?.today ? 'task-due-today' : ''}">${due ? escapeHtml(due.label) : ''}</span>
+        </div>
+      `;
+    }).join('');
+    tel.querySelectorAll('[data-task-id]').forEach(row => {
+      row.addEventListener('click', () => {
+        const t = tasks.find(x => x.id === row.dataset.taskId);
+        if (!t) return;
+        const hh = t.householdId ? households.find(h => h.id === t.householdId) : null;
+        openTaskModal(t, hh);
+      });
+    });
   }
 
   // Ablaufwarnungen (nur im Haushalts-Dashboard)
@@ -1476,10 +2104,11 @@ function renderHouseholdCards() {
   });
 }
 
-let sortableLists = null;
+const sortableListsByEl = new WeakMap();
 function renderListCards(el, ls, emptyText) {
   if (!el) return;
-  if (sortableLists) { try { sortableLists.destroy(); } catch {} sortableLists = null; }
+  const prev = sortableListsByEl.get(el);
+  if (prev) { try { prev.destroy(); } catch {} sortableListsByEl.delete(el); }
   if (!ls.length) {
     el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>${escapeHtml(emptyText)}</p></div>`;
     return;
@@ -1515,7 +2144,7 @@ function renderListCards(el, ls, emptyText) {
 
   const grid = el.querySelector('.sortable-list-grid');
   if (grid && typeof Sortable !== 'undefined') {
-    sortableLists = Sortable.create(grid, {
+    const s = Sortable.create(grid, {
       handle: '.card-drag-handle',
       animation: 150,
       ghostClass: 'sortable-ghost',
@@ -1533,6 +2162,7 @@ function renderListCards(el, ls, emptyText) {
         }
       }
     });
+    sortableListsByEl.set(el, s);
   }
 }
 
@@ -1593,6 +2223,7 @@ function renderHousehold() {
         <button data-hhtab="dashboard" class="${householdTab === 'dashboard' ? 'active' : ''}">📊 Dashboard</button>
         <button data-hhtab="calendars" class="${householdTab === 'calendars' ? 'active' : ''}">📅 Kalender</button>
         <button data-hhtab="lists" class="${householdTab === 'lists' ? 'active' : ''}">📝 Listen</button>
+        <button data-hhtab="tasks" class="${householdTab === 'tasks' ? 'active' : ''}">✅ Aufgaben</button>
         <button data-hhtab="notes" class="${householdTab === 'notes' ? 'active' : ''}">📌 Notizen</button>
         <button data-hhtab="meal" class="${householdTab === 'meal' ? 'active' : ''}">🍽️ Essen</button>
         <button data-hhtab="records" class="${householdTab === 'records' ? 'active' : ''}">📁 Akte</button>
@@ -1641,6 +2272,8 @@ function renderHouseholdTab(hh, isOwner) {
     renderMealTab(content, hh);
   } else if (householdTab === 'records') {
     renderRecordsTab(content, hh);
+  } else if (householdTab === 'tasks') {
+    renderTasksTab(content, hh);
   } else if (householdTab === 'notes') {
     content.innerHTML = `
       <div class="section-title">
@@ -3326,11 +3959,14 @@ function findRecipeInJsonLd(json) {
   return null;
 }
 
-async function fetchRecipeFromUrl(url) {
-  const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-  if (!resp.ok) throw new Error('Rezept konnte nicht geladen werden');
-  const data = await resp.json();
-  const html = data.contents || '';
+function parseIngredientLine(t) {
+  const s = String(t).trim();
+  const m = s.match(/^(\d+(?:[,.]\d+)?)\s*(.*)$/);
+  if (m) return { qty: Math.max(1, Math.round(parseFloat(m[1].replace(',', '.')))), text: m[2] || s };
+  return { qty: 1, text: s };
+}
+
+function extractRecipeFromHtml(html) {
   const parser = new DOMParser();
   const docHtml = parser.parseFromString(html, 'text/html');
   const scripts = docHtml.querySelectorAll('script[type="application/ld+json"]');
@@ -3340,17 +3976,82 @@ async function fetchRecipeFromUrl(url) {
       if (recipe) {
         return {
           name: recipe.name || '',
-          ingredients: (recipe.recipeIngredient || []).map(t => {
-            const s = String(t).trim();
-            const m = s.match(/^(\d+(?:[,.]\d+)?)\s*(.*)$/);
-            if (m) return { qty: Math.max(1, Math.round(parseFloat(m[1].replace(',', '.')))), text: m[2] || s };
-            return { qty: 1, text: s };
-          })
+          ingredients: (recipe.recipeIngredient || []).map(parseIngredientLine)
         };
       }
     } catch {}
   }
-  throw new Error('Kein Rezept auf der Seite gefunden');
+  return null;
+}
+
+// Mehrere CORS-Proxies durchprobieren; jeder mit eigenem Response-Format.
+const RECIPE_PROXIES = [
+  { name: 'corsproxy.io', build: u => `https://corsproxy.io/?${encodeURIComponent(u)}`, extract: async r => r.text() },
+  { name: 'allorigins',   build: u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`, extract: async r => (await r.json()).contents || '' },
+  { name: 'codetabs',     build: u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`, extract: async r => r.text() },
+];
+
+async function fetchRecipeFromUrl(url) {
+  const errors = [];
+
+  // 1) Zuerst eigener Worker (zuverlässig, echter Browser-UA, 30d Cache)
+  if (WORKER_URL) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 10000);
+      const resp = await fetch(`${WORKER_URL}/recipe?url=${encodeURIComponent(url)}`, { signal: ctrl.signal });
+      clearTimeout(t);
+      if (resp.ok) {
+        const html = await resp.text();
+        const recipe = extractRecipeFromHtml(html);
+        if (recipe && recipe.ingredients.length) return recipe;
+        errors.push('Worker: kein JSON-LD gefunden');
+      } else {
+        errors.push(`Worker: HTTP ${resp.status}`);
+      }
+    } catch (e) {
+      errors.push(`Worker: ${e.name === 'AbortError' ? 'Timeout' : e.message}`);
+    }
+  }
+
+  // 2) Fallback über Community-Proxies
+  for (const proxy of RECIPE_PROXIES) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 8000);
+      const resp = await fetch(proxy.build(url), { signal: ctrl.signal });
+      clearTimeout(t);
+      if (!resp.ok) { errors.push(`${proxy.name}: HTTP ${resp.status}`); continue; }
+      const html = await proxy.extract(resp);
+      if (!html || html.length < 500) { errors.push(`${proxy.name}: leere Antwort`); continue; }
+      const recipe = extractRecipeFromHtml(html);
+      if (recipe && recipe.ingredients.length) return recipe;
+      // Diagnostik: bekamen wir überhaupt die Rezeptseite oder eine Bot-Wall?
+      const isBotWall = /captcha|cloudflare|access denied|blocked/i.test(html.slice(0, 4000));
+      errors.push(`${proxy.name}: ${isBotWall ? 'von Seite blockiert (Bot-Schutz)' : 'kein JSON-LD-Rezept gefunden'}`);
+    } catch (e) {
+      errors.push(`${proxy.name}: ${e.name === 'AbortError' ? 'Timeout' : e.message}`);
+    }
+  }
+  console.warn('Rezept-Import fehlgeschlagen:', errors);
+  const looksLikeBotBlock = errors.some(e => e.includes('Bot-Schutz') || e.includes('403') || e.includes('503'));
+  throw new Error(looksLikeBotBlock
+    ? 'Diese Seite blockiert den Rezept-Import. Bitte Zutaten manuell einfügen.'
+    : 'Kein Rezept auf der Seite gefunden. Bitte Zutaten manuell einfügen.');
+}
+
+async function fetchIngredientsFromPhoto(file) {
+  if (!WORKER_URL) throw new Error('Foto-Import ist nicht konfiguriert (Worker fehlt).');
+  if (!file || !file.type.startsWith('image/')) throw new Error('Bitte ein Bild auswählen.');
+  if (file.size > 5 * 1024 * 1024) throw new Error('Bild zu groß (max 5 MB).');
+  const resp = await fetch(`${WORKER_URL}/photo-ingredients`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `Fehler ${resp.status}`);
+  return { dish: data.dish || '', ingredients: data.ingredients || [] };
 }
 
 function openMealProposalModal(plan, dayKey, hh) {
@@ -3363,12 +4064,22 @@ function openMealProposalModal(plan, dayKey, hh) {
       <div id="modal-msg"></div>
       <div class="field">
         <label>Rezept-Link (optional)</label>
-        <div style="display:flex;gap:8px;">
-          <input type="url" id="mp-url" placeholder="https://www.chefkoch.de/..." style="flex:1;" />
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input type="url" id="mp-url" placeholder="https://www.chefkoch.de/..." style="flex:1;min-width:0;" />
           <button type="button" class="btn btn-secondary btn-small" id="mp-fetch">Laden</button>
         </div>
         <div class="field-hint">Wir versuchen, Gericht und Zutaten automatisch aus der Seite zu lesen (Chefkoch, Lecker, EatSmarter, u.v.m.).</div>
       </div>
+      ${WORKER_URL ? `
+      <div class="field">
+        <label>Foto mit Zutaten (optional)</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input type="file" id="mp-photo" accept="image/*" capture="environment" style="flex:1;min-width:0;" />
+          <button type="button" class="btn btn-secondary btn-small" id="mp-photo-btn">Zutaten aus Foto</button>
+        </div>
+        <div class="field-hint">Zettel, Kühlschrank oder Rezeptseite fotografieren — die Zutaten werden automatisch erkannt.</div>
+      </div>
+      ` : ''}
       <div class="field">
         <label>Gericht</label>
         <input type="text" id="mp-dish" placeholder="z.B. Pizza Margherita" required />
@@ -3409,6 +4120,38 @@ function openMealProposalModal(plan, dayKey, hh) {
     }
     fetchBtn.disabled = false;
   });
+
+  const photoBtn = document.getElementById('mp-photo-btn');
+  if (photoBtn) {
+    photoBtn.addEventListener('click', async () => {
+      const fileInput = document.getElementById('mp-photo');
+      const file = fileInput?.files?.[0];
+      const msg = document.getElementById('modal-msg');
+      if (!file) {
+        msg.innerHTML = `<div class="msg msg-error">Bitte zuerst ein Foto auswählen.</div>`;
+        return;
+      }
+      msg.innerHTML = `<div class="msg" style="background:var(--surface2);color:var(--muted);">Foto wird ausgewertet …</div>`;
+      photoBtn.disabled = true;
+      try {
+        const r = await fetchIngredientsFromPhoto(file);
+        const dishInput = document.getElementById('mp-dish');
+        const ingsArea = document.getElementById('mp-ings');
+        if (r.dish && !dishInput.value.trim()) dishInput.value = r.dish;
+        if (r.ingredients.length) {
+          const lines = r.ingredients.map(i => (i.qty > 1 ? i.qty + ' ' : '') + i.text);
+          ingsArea.value = ingsArea.value.trim() ? ingsArea.value.trim() + '\n' + lines.join('\n') : lines.join('\n');
+        }
+        msg.innerHTML = r.ingredients.length
+          ? `<div class="msg msg-success">${r.ingredients.length} Zutaten aus Foto erkannt. Bitte prüfen und ggf. anpassen.</div>`
+          : `<div class="msg msg-error">Keine Zutaten im Foto erkannt.</div>`;
+      } catch (err) {
+        msg.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
+      }
+      photoBtn.disabled = false;
+    });
+  }
+
   document.getElementById('cancel-btn').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   document.getElementById('save-btn').addEventListener('click', async () => {
@@ -4692,19 +5435,27 @@ function buildPaletteItems() {
   items.push({ label: '📊 Home Dashboard', action: () => { homeTab = 'dashboard'; goHome(); } });
   items.push({ label: '📅 Home · Persönliche Kalender', action: () => { homeTab = 'calendars'; goHome(); } });
   items.push({ label: '📝 Home · Persönliche Listen', action: () => { homeTab = 'lists'; goHome(); } });
+  items.push({ label: '✅ Home · Persönliche Aufgaben', action: () => { homeTab = 'tasks'; goHome(); } });
   items.push({ label: '📌 Home · Persönliche Notizen', action: () => { homeTab = 'notes'; goHome(); } });
+  items.push({ label: '➕ Neue Aufgabe (persönlich)', action: () => openTaskModal(null, null) });
   households.forEach(h => {
     items.push({ label: `🏠 ${h.name} · Dashboard`, action: () => { householdTab = 'dashboard'; openHousehold(h); } });
     items.push({ label: `🏠 ${h.name} · Kalender`, action: () => { householdTab = 'calendars'; openHousehold(h); } });
     items.push({ label: `🏠 ${h.name} · Listen`, action: () => { householdTab = 'lists'; openHousehold(h); } });
+    items.push({ label: `🏠 ${h.name} · Aufgaben`, action: () => { householdTab = 'tasks'; openHousehold(h); } });
     items.push({ label: `🏠 ${h.name} · Notizen`, action: () => { householdTab = 'notes'; openHousehold(h); } });
     items.push({ label: `🏠 ${h.name} · Mitglieder`, action: () => { householdTab = 'members'; openHousehold(h); } });
+    items.push({ label: `➕ Neue Aufgabe in ${h.name}`, action: () => openTaskModal(null, h) });
   });
   calendars.forEach(c => {
     items.push({ label: `📆 Kalender: ${c.name}`, action: () => openCalendar(c) });
   });
   lists.forEach(l => {
     items.push({ label: `📝 Liste: ${l.name}`, action: () => openList(l) });
+  });
+  tasks.filter(t => t.status !== 'done').forEach(t => {
+    const hh = t.householdId ? households.find(h => h.id === t.householdId) : null;
+    items.push({ label: `✅ Aufgabe: ${t.title}`, action: () => openTaskModal(t, hh) });
   });
   return items;
 }
