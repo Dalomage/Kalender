@@ -2016,11 +2016,32 @@ async function renderDashboard(content, scope = null) {
     tel.innerHTML = dueTasks.map(tt => {
       const due = taskDueInfo(tt);
       const prio = TASK_PRIORITY_META[tt.priority || 'normal'];
+      const linkedList = tt.linkedListId ? lists.find(l => l.id === tt.linkedListId) : null;
+      let progressBlock = '';
+      if (linkedList) {
+        const total = typeof linkedList.totalCount === 'number' ? linkedList.totalCount : null;
+        const open = linkedList.openCount || 0;
+        if (total && total > 0) {
+          const doneN = Math.max(0, total - open);
+          const pct = Math.round((doneN / total) * 100);
+          progressBlock = `
+            <div class="dash-task-progress" title="${escapeHtml(linkedList.name)} · ${doneN}/${total} erledigt">
+              <div class="dash-task-progress-bar"><div class="dash-task-progress-fill" style="width:${pct}%;"></div></div>
+              <span class="dash-task-progress-label">${escapeHtml(linkedList.icon || '🛒')} ${doneN}/${total}</span>
+            </div>
+          `;
+        } else {
+          progressBlock = `<span class="dash-task-progress-label">${escapeHtml(linkedList.icon || '🛒')} ${open} offen</span>`;
+        }
+      }
       return `
         <div class="dash-task-row ${due?.overdue ? 'overdue' : ''}" data-task-id="${tt.id}">
-          <span class="task-prio">${prio.dot}</span>
-          <span class="dash-task-title">${escapeHtml(tt.title || '(ohne Titel)')}</span>
-          <span class="dash-task-due ${due?.overdue ? 'task-due-overdue' : ''} ${due?.today ? 'task-due-today' : ''}">${due ? escapeHtml(due.label) : ''}</span>
+          <div class="dash-task-main">
+            <span class="task-prio">${prio.dot}</span>
+            <span class="dash-task-title">${escapeHtml(tt.title || '(ohne Titel)')}</span>
+            <span class="dash-task-due ${due?.overdue ? 'task-due-overdue' : ''} ${due?.today ? 'task-due-today' : ''}">${due ? escapeHtml(due.label) : ''}</span>
+          </div>
+          ${progressBlock}
         </div>
       `;
     }).join('');
@@ -3434,11 +3455,13 @@ function openList(list) {
     snap.forEach(d => listItems.push({ id: d.id, ...d.data() }));
     renderItems(list);
 
-    // Selbstheilung: openCount aus den geladenen Items neu berechnen
-    const actual = listItems.filter(i => !i.done).length;
-    const stored = currentList?.openCount || 0;
-    if (currentList && stored !== actual) {
-      updateDoc(doc(db, 'lists', list.id), { openCount: actual }).catch(() => {});
+    // Selbstheilung: openCount + totalCount aus den geladenen Items neu berechnen
+    const actualOpen = listItems.filter(i => !i.done).length;
+    const actualTotal = listItems.length;
+    const storedOpen = currentList?.openCount || 0;
+    const storedTotal = currentList?.totalCount ?? -1;
+    if (currentList && (storedOpen !== actualOpen || storedTotal !== actualTotal)) {
+      updateDoc(doc(db, 'lists', list.id), { openCount: actualOpen, totalCount: actualTotal }).catch(() => {});
     }
   }, err => console.error('items sub failed:', err));
 }
@@ -3548,7 +3571,7 @@ async function addItem(list) {
       createdBy: currentUser.uid,
       createdAt: serverTimestamp()
     });
-    await updateDoc(doc(db, 'lists', list.id), { openCount: increment(1) });
+    await updateDoc(doc(db, 'lists', list.id), { openCount: increment(1), totalCount: increment(1) });
   } catch (err) {
     alert('Fehler: ' + err.message);
     input.value = text;
@@ -3631,14 +3654,16 @@ async function deleteItem(list, itemId) {
   if (backup) delete backup.id;
   try {
     await deleteDoc(doc(db, 'lists', list.id, 'items', itemId));
-    if (wasOpen) {
-      await updateDoc(doc(db, 'lists', list.id), { openCount: increment(-1) });
-    }
+    const delPatch = { totalCount: increment(-1) };
+    if (wasOpen) delPatch.openCount = increment(-1);
+    await updateDoc(doc(db, 'lists', list.id), delPatch);
     if (backup) {
       showToast(`„${backup.text}" gelöscht`, {
         undo: async () => {
           await setDoc(doc(db, 'lists', list.id, 'items', itemId), backup);
-          if (wasOpen) await updateDoc(doc(db, 'lists', list.id), { openCount: increment(1) });
+          const undoPatch = { totalCount: increment(1) };
+          if (wasOpen) undoPatch.openCount = increment(1);
+          await updateDoc(doc(db, 'lists', list.id), undoPatch);
         }
       });
     }
@@ -3653,6 +3678,7 @@ async function clearDoneItems(list) {
   if (!confirm(`${doneItems.length} erledigte Einträge löschen?`)) return;
   try {
     await Promise.all(doneItems.map(i => deleteDoc(doc(db, 'lists', list.id, 'items', i.id))));
+    await updateDoc(doc(db, 'lists', list.id), { totalCount: increment(-doneItems.length) });
   } catch (err) {
     alert('Fehler: ' + err.message);
   }
@@ -3688,6 +3714,7 @@ async function duplicateList(list) {
       owner: currentUser.uid,
       members: { [currentUser.uid]: 'owner' },
       openCount: 0,
+      totalCount: 0,
       createdAt: serverTimestamp()
     };
     if (list.householdId) payload.householdId = list.householdId;
@@ -3708,7 +3735,7 @@ async function duplicateList(list) {
           createdAt: serverTimestamp()
         });
       });
-      batch.update(newListRef, { openCount: openItems.length });
+      batch.update(newListRef, { openCount: openItems.length, totalCount: openItems.length });
       await batch.commit();
     }
     alert(`Liste „${name.trim()}" angelegt.`);
@@ -4351,7 +4378,7 @@ function openSendToListModal(proposal, hh) {
           createdAt: serverTimestamp()
         });
       });
-      batch.update(doc(db, 'lists', listId), { openCount: increment(proposal.ingredients.length) });
+      batch.update(doc(db, 'lists', listId), { openCount: increment(proposal.ingredients.length), totalCount: increment(proposal.ingredients.length) });
       await batch.commit();
       overlay.remove();
       showToast(`${proposal.ingredients.length} Zutaten zu „${list.name}" hinzugefügt`, { type: 'success' });

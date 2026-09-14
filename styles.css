@@ -1983,3 +1983,42 @@ body.weekday-accents .event-row[data-weekday="0"] { border-left-color: #ec4899; 
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Dashboard-Task-Row mit optionalem Fortschrittsbalken (verknüpfte Liste) */
+.dash-task-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+.dash-task-main {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.dash-task-main .dash-task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-task-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.dash-task-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--surface2);
+  border-radius: 999px;
+  overflow: hidden;
+  min-width: 0;
+}
+.dash-task-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--primary-hover, var(--primary)));
+  border-radius: 999px;
+  transition: width 0.2s;
+}
+.dash-task-progress-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
