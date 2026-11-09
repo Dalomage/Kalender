@@ -208,9 +208,12 @@ async function handlePhoto(request, env, origin) {
       }],
     });
   } catch (error) {
+    // Details nur ins Worker-Protokoll (wrangler tail), nie an den Client
+    console.error('photo-ingredients:', error?.status, error?.message);
     if (error instanceof Anthropic.RateLimitError) return json({ error: 'Erkennung gerade ausgelastet, bitte gleich nochmal' }, { status: 503 }, origin);
     if (error instanceof Anthropic.AuthenticationError) return json({ error: 'Foto-Erkennung falsch eingerichtet (Schlüssel)' }, { status: 503 }, origin);
-    if (error instanceof Anthropic.BadRequestError) return json({ error: 'Bild konnte nicht ausgewertet werden' }, { status: 422 }, origin);
+    // Bildformat/-größe prüfen wir vorher selbst – ein 400 hier ist meist Konto/Guthaben, nicht das Bild
+    if (error instanceof Anthropic.BadRequestError) return json({ error: 'Foto-Erkennung gerade nicht verfügbar' }, { status: 503 }, origin);
     if (error instanceof Anthropic.APIError) return json({ error: `Erkennung fehlgeschlagen (${error.status ?? 'Netz'})` }, { status: 502 }, origin);
     return json({ error: 'Erkennung fehlgeschlagen' }, { status: 502 }, origin);
   }
