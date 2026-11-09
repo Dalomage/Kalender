@@ -390,7 +390,7 @@ function avatarHtml(uid, size = 'md') {
 // bg/surface/primary nur für die Vorschau-Kacheln im Profil und die Statusleiste
 const THEMES = [
   { id: 'dark',     label: 'Dunkel (Standard)', bg: '#0b0d10', surface: '#15191e', primary: '#2dd4bf' },
-  { id: 'light',    label: 'Hell',              bg: '#f5f6f8', surface: '#ffffff', primary: '#0d9488' },
+  { id: 'light',    label: 'Hell',              bg: '#f5f6f8', surface: '#ffffff', primary: '#0f766e' },
   { id: 'sepia',    label: 'Sepia',             bg: '#f3ecdf', surface: '#fbf8f2', primary: '#8b5e34' },
   { id: 'midnight', label: 'Midnight',          bg: '#05070d', surface: '#0e1320', primary: '#60a5fa' },
   { id: 'nord',     label: 'Nord',              bg: '#2b303b', surface: '#353c4a', primary: '#88c0d0' },
@@ -3333,6 +3333,8 @@ function setupFullCalendar(container, cal, canEdit) {
       right: window.innerWidth < 700 ? 'dayGridMonth,listWeek' : 'dayGridMonth,timeGridWeek,listWeek'
     },
     buttonText: { today: 'Heute', month: 'Monat', week: 'Woche', list: 'Liste' },
+    allDayText: 'Ganztägig',
+    noEventsText: 'Keine Termine in diesem Zeitraum',
     customButtons: {
       jumpTo: {
         text: 'Datum …',
