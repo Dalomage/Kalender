@@ -1,7 +1,7 @@
 // Kalender Service Worker — "network-first" für App-Shell
 // Sobald online, wird immer die aktuellste Version geliefert; Cache dient nur als Offline-Fallback.
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE_NAME = `kalender-${VERSION}`;
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './firebase-config.js', './manifest.json', './logo.svg', './fonts/inter-latin-var.woff2', './fonts/inter-latin-ext-var.woff2'];
 
@@ -51,6 +51,8 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Fremde Assets (CDN): cache-first
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+  // Fremde Assets (CDN, Wetter-API …): NICHT abfangen. Der Browser lädt sie
+  // direkt (geprüft gegen script-src der Seite). Ein fetch() aus dem Service
+  // Worker würde unter connect-src der CSP fallen und wurde blockiert →
+  // FullCalendar/Sortable fehlten ab dem zweiten Laden.
 });
