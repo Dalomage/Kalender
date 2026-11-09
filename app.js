@@ -1067,6 +1067,78 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ── Leere Zustände ────────────────────────────────────────────
+// Der Aktionsknopf löst den vorhandenen „Neu …“-Knopf der Seite aus (per ID),
+// dadurch läuft exakt derselbe Ablauf wie bisher.
+function emptyStateHtml(iconName, text, actionId = null, actionLabel = '') {
+  return `
+    <div class="empty empty-rich">
+      <div class="empty-icon">${icon(iconName)}</div>
+      <p>${text}</p>
+      ${actionId ? `<button class="btn btn-secondary btn-small" data-empty-action="${actionId}">${icon('plus')} ${escapeHtml(actionLabel)}</button>` : ''}
+    </div>
+  `;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-empty-action]');
+  if (b) $(b.dataset.emptyAction)?.click();
+});
+const EMPTY_ACTIONS = {
+  'personal-lists': ['list', 'new-list-btn', 'Erste Liste anlegen'],
+  'hh-lists': ['list', 'new-hh-list-btn', 'Erste Liste anlegen'],
+  'personal-notes': ['note', 'new-note-btn', 'Erste Notiz schreiben'],
+  'hh-notes': ['note', 'new-hh-note-btn', 'Erste Notiz schreiben'],
+  'records-list': ['folder', 'new-record-btn', 'Eintrag anlegen'],
+};
+
+// ── Eigene Dialoge (ersetzen alert/confirm/prompt) ────────────
+// Alle geben ein Promise zurück: uiConfirm → true/false, uiPrompt → Text oder null.
+function uiDialog({ title, message = '', confirmText = 'OK', cancelText = 'Abbrechen', danger = false, input = null, iconName = null }) {
+  return new Promise(resolve => {
+    const prevFocus = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay ui-dialog-overlay';
+    overlay.innerHTML = `
+      <div class="modal ui-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ui-dlg-title">
+        ${iconName ? `<div class="ui-dialog-icon ${danger ? 'danger' : ''}">${icon(iconName)}</div>` : ''}
+        <h2 id="ui-dlg-title">${escapeHtml(title)}</h2>
+        ${message ? `<p class="ui-dialog-text">${escapeHtml(message)}</p>` : ''}
+        ${input ? `<div class="field"><input type="text" id="ui-dlg-input" value="${escapeHtml(input.value || '')}" ${input.readonly ? 'readonly' : ''} /></div>` : ''}
+        <div class="modal-actions">
+          ${cancelText ? `<button class="btn btn-secondary" data-ui="cancel">${escapeHtml(cancelText)}</button>` : ''}
+          <button class="btn ${danger ? 'btn-danger' : ''}" data-ui="ok">${escapeHtml(confirmText)}</button>
+        </div>
+      </div>
+    `;
+    const close = val => {
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+      try { prevFocus?.focus?.(); } catch {}
+      resolve(val);
+    };
+    const okVal = () => input ? (overlay.querySelector('#ui-dlg-input').value) : true;
+    const cancelVal = input ? null : false;
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(cancelVal); }
+      else if (e.key === 'Enter' && input && e.target.id === 'ui-dlg-input') { e.preventDefault(); e.stopPropagation(); close(okVal()); }
+    };
+    overlay.querySelector('[data-ui="ok"]').addEventListener('click', () => close(okVal()));
+    overlay.querySelector('[data-ui="cancel"]')?.addEventListener('click', () => close(cancelVal));
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(cancelVal); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(overlay);
+    const inp = overlay.querySelector('#ui-dlg-input');
+    if (inp) { inp.focus(); inp.select(); }
+    else overlay.querySelector(danger && cancelText ? '[data-ui="cancel"]' : '[data-ui="ok"]').focus();
+  });
+}
+function uiConfirm(message, { title = 'Bist du sicher?', confirmText = 'Bestätigen', danger = false } = {}) {
+  return uiDialog({ title, message, confirmText, danger, iconName: danger ? 'trash' : 'alert' });
+}
+function uiPrompt(title, value = '', { message = '', confirmText = 'OK', readonly = false, cancelText = 'Abbrechen' } = {}) {
+  return uiDialog({ title, message, confirmText, cancelText, input: { value, readonly } });
+}
+
 // ── App-Hülle: Seitenleiste + Kopfleiste ──────────────────────
 const NAV_PERSONAL = [
   { tab: 'dashboard', label: 'Übersicht', icon: 'dashboard' },
@@ -1827,12 +1899,11 @@ function openTaskModal(existing, hh) {
   const linkableEvents = [];
 
   overlay.innerHTML = `
-    <div class="modal modal-wide">
-      <h2>${isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten'}${hh ? ' <span class="cal-hh-badge">' + escapeHtml(hh.name) + '</span>' : ''}</h2>
+    <div class="modal modal-wide modal-form">
+      <h2>${isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten'}<span class="modal-sub">${hh ? escapeHtml(hh.name) : 'Persönlich'}</span></h2>
 
       <div class="field">
-        <label>Titel</label>
-        <input type="text" id="task-title" value="${escapeHtml(t.title || '')}" maxlength="120" required />
+        <input type="text" id="task-title" class="title-input" value="${escapeHtml(t.title || '')}" maxlength="120" placeholder="Was ist zu tun?" aria-label="Titel" required />
       </div>
 
       <div class="field">
@@ -1840,6 +1911,7 @@ function openTaskModal(existing, hh) {
         <textarea id="task-desc" rows="4" placeholder="Details, Kontext, Links …">${escapeHtml(t.description || '')}</textarea>
       </div>
 
+      <div class="form-group-label">${icon('clock', 'ic-sm')} Planung</div>
       <div class="field-row">
         <div class="field">
           <label>Fällig am</label>
@@ -1857,7 +1929,7 @@ function openTaskModal(existing, hh) {
           <select id="task-priority">
             ${['low','normal','high'].map(p => `
               <option value="${p}" ${(t.priority || 'normal') === p ? 'selected' : ''}>
-                ${TASK_PRIORITY_META[p].dot} ${TASK_PRIORITY_META[p].label}
+                ${TASK_PRIORITY_META[p].label}
               </option>
             `).join('')}
           </select>
@@ -1867,7 +1939,7 @@ function openTaskModal(existing, hh) {
           <select id="task-status">
             ${TASK_STATUSES.map(s => `
               <option value="${s.key}" ${(t.status || 'open') === s.key ? 'selected' : ''}>
-                ${s.emoji} ${s.label}
+                ${s.label}
               </option>
             `).join('')}
           </select>
@@ -1886,6 +1958,7 @@ function openTaskModal(existing, hh) {
         <input type="text" id="task-tags" value="${escapeHtml((t.tags || []).join(', '))}" placeholder="arbeit, projekt-x, dringend" />
       </div>
 
+      <div class="form-group-label">${icon('repeat', 'ic-sm')} Erinnerung &amp; Wiederholung</div>
       <div class="field-row">
         <div class="field">
           <label>Erinnerung</label>
@@ -1905,6 +1978,7 @@ function openTaskModal(existing, hh) {
         </div>
       </div>
 
+      <div class="form-group-label">${icon('link', 'ic-sm')} Verknüpfungen</div>
       <div class="field">
         <label>Verknüpfter Termin</label>
         <select id="task-linked-event">
@@ -2020,18 +2094,18 @@ function openTaskModal(existing, hh) {
 
   if (!isNew) {
     document.getElementById('task-delete-btn').addEventListener('click', async () => {
-      if (!confirm('Aufgabe wirklich löschen?')) return;
+      if (!(await uiConfirm('Die Aufgabe wird dauerhaft gelöscht.', { title: 'Aufgabe löschen?', confirmText: 'Löschen', danger: true }))) return;
       try {
         await deleteDoc(doc(db, 'tasks', existing.id));
         overlay.remove();
         showToast('Aufgabe gelöscht', { type: 'success' });
-      } catch (e) { console.error(e); alert('Löschen fehlgeschlagen'); }
+      } catch (e) { console.error(e); showToast('Löschen fehlgeschlagen', { type: 'error' }); }
     });
   }
 
   document.getElementById('save-btn').addEventListener('click', async () => {
     const title = document.getElementById('task-title').value.trim();
-    if (!title) { alert('Titel fehlt'); return; }
+    if (!title) { showToast('Bitte einen Titel eingeben', { type: 'error' }); return; }
     const description = document.getElementById('task-desc').value.trim();
     const dueDateVal = document.getElementById('task-due-date').value;
     const dueTimeVal = document.getElementById('task-due-time').value || null;
@@ -2090,7 +2164,7 @@ function openTaskModal(existing, hh) {
       showToast(isNew ? 'Aufgabe angelegt' : 'Aufgabe gespeichert', { type: 'success' });
     } catch (e) {
       console.error('task save failed', e);
-      alert('Speichern fehlgeschlagen: ' + e.message);
+      showToast('Speichern fehlgeschlagen: ' + e.message, { type: 'error' });
     }
   });
 }
@@ -2246,7 +2320,7 @@ async function renderDashboard(content, scope = null) {
       <div class="dash-grid">
         <section class="dash-col dash-col-events">
           <div class="section-title"><span>${icon('calendar', 'ic-sm')} Nächste 7 Tage</span></div>
-          <div id="dash-events"><div class="loading-block"><div class="spinner"></div></div></div>
+          <div id="dash-events"><div class="skeleton-stack" aria-label="Lädt …"><div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div></div></div>
         </section>
         <section class="dash-col dash-col-lists">
           <div class="section-title"><span>${icon('list', 'ic-sm')} Offene Listen</span></div>
@@ -2352,7 +2426,7 @@ async function renderDashboard(content, scope = null) {
   // Offene Listen sofort
   const lel = $('dash-lists');
   if (!openLists.length) {
-    lel.innerHTML = `<div class="empty"><p>${icon('check', 'ic-sm')} Alle Listen sind abgehakt.</p></div>`;
+    lel.innerHTML = emptyStateHtml('check', 'Alles abgehakt – keine offenen Einträge.');
   } else {
     lel.innerHTML = `<div class="calendar-grid">${openLists.map(l => `
       <div class="calendar-card" data-list="${l.id}" role="button" tabindex="0">
@@ -2408,7 +2482,7 @@ async function renderDashboard(content, scope = null) {
     return a.start - b.start;
   });
   if (!all.length) {
-    evEl.innerHTML = `<div class="empty"><p>Keine Termine in den nächsten 7 Tagen.</p></div>`;
+    evEl.innerHTML = emptyStateHtml('calendar', 'Keine Termine in den nächsten 7 Tagen.');
     return;
   }
   ensureNamesFor(all.map(e => e.assignee).filter(Boolean), () => renderDashboard(content, scope));
@@ -2495,7 +2569,8 @@ function renderListCards(el, ls, emptyText) {
   const prev = sortableListsByEl.get(el);
   if (prev) { try { prev.destroy(); } catch {} sortableListsByEl.delete(el); }
   if (!ls.length) {
-    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>${escapeHtml(emptyText)}</p></div>`;
+    const ea = EMPTY_ACTIONS[el.id];
+    el.innerHTML = emptyStateHtml(ea ? ea[0] : 'list', escapeHtml(emptyText), ea?.[1], ea?.[2]);
     return;
   }
   // Nach user-definierter Reihenfolge sortieren (Fallback: älteste zuerst)
@@ -2556,7 +2631,7 @@ function renderPersonalCals(cals) {
   if (!el) return;
   if (sortableCals) { try { sortableCals.destroy(); } catch {} sortableCals = null; }
   if (!cals.length) {
-    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>Keine persönlichen Kalender. Kalender innerhalb eines Haushalts findest du dort.</p></div>`;
+    el.innerHTML = emptyStateHtml('calendar', 'Noch keine persönlichen Kalender. Kalender eines Haushalts findest du im jeweiligen Haushalt.', 'new-cal-btn', 'Kalender anlegen');
     return;
   }
   const sorted = [...cals].sort((a, b) => {
@@ -2675,12 +2750,12 @@ function renderHouseholdTab(hh, isOwner) {
       <div class="section-title sub-section">
         <span>${icon('chart')} Statistiken</span>
       </div>
-      <div id="stats-panel"><div class="loading-block"><div class="spinner"></div></div></div>
+      <div id="stats-panel"><div class="skeleton-stack" aria-label="Lädt …"><div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row sm"></div></div></div>
 
       <div class="section-title sub-section">
         <span>${icon('activity')} Letzte Aktivitäten</span>
       </div>
-      <div id="activity-log"><div class="loading-block"><div class="spinner"></div></div></div>
+      <div id="activity-log"><div class="skeleton-stack" aria-label="Lädt …"><div class="skeleton skeleton-row sm"></div><div class="skeleton skeleton-row sm"></div><div class="skeleton skeleton-row sm"></div></div></div>
 
       <div class="danger-zone">
         ${isOwner ? `
@@ -2750,7 +2825,7 @@ function renderMembers(hh, canEdit) {
             <button class="btn btn-secondary btn-small" data-edit-person="${p.id}">Bearbeiten</button>
           </div>
         `;
-      }).join('') : `<div class="empty" style="padding:1rem;"><p>Noch keine weiteren Personen.</p></div>`}
+      }).join('') : emptyStateHtml('users', 'Noch keine weiteren Personen.')}
     </div>
   `;
   el.querySelectorAll('[data-remove-uid]').forEach(btn => {
@@ -2867,7 +2942,7 @@ function openPersonModal(existing, hh) {
   const del = document.getElementById('delete-btn');
   if (del) {
     del.addEventListener('click', async () => {
-      if (!confirm(`Person „${existing.name}" wirklich löschen?`)) return;
+      if (!(await uiConfirm(`„${existing.name}“ wird aus dem Haushalt gelöscht.`, { title: 'Person löschen?', confirmText: 'Löschen', danger: true }))) return;
       try {
         await deleteDoc(doc(db, 'persons', existing.id));
         overlay.remove();
@@ -2879,7 +2954,7 @@ function openPersonModal(existing, hh) {
 }
 
 async function removeHouseholdMember(hh, uid) {
-  if (!confirm('Diese Person wirklich aus dem Haushalt entfernen?')) return;
+  if (!(await uiConfirm('Das Mitglied verliert den Zugriff auf alle Inhalte dieses Haushalts.', { title: 'Mitglied entfernen?', confirmText: 'Entfernen', danger: true }))) return;
   try {
     const newMembers = { ...hh.members };
     delete newMembers[uid];
@@ -2890,12 +2965,12 @@ async function removeHouseholdMember(hh, uid) {
       memberEmails: newEmails
     });
   } catch (err) {
-    alert('Fehler: ' + err.message);
+    showToast('Fehler: ' + err.message, { type: 'error' });
   }
 }
 
 async function confirmLeaveHousehold(hh) {
-  if (!confirm(`Haushalt „${hh.name}" wirklich verlassen? Du verlierst dann Zugriff auf alle Kalender darin.`)) return;
+  if (!(await uiConfirm('Du verlierst dann den Zugriff auf alle Kalender, Listen und Notizen darin.', { title: `„${hh.name}“ verlassen?`, confirmText: 'Verlassen', danger: true }))) return;
   try {
     const newMembers = { ...hh.members };
     delete newMembers[currentUser.uid];
@@ -2904,7 +2979,7 @@ async function confirmLeaveHousehold(hh) {
     await updateDoc(doc(db, 'households', hh.id), { members: newMembers, memberEmails: newEmails });
     goHome();
   } catch (err) {
-    alert('Fehler: ' + err.message);
+    showToast('Fehler: ' + err.message, { type: 'error' });
   }
 }
 
@@ -2913,7 +2988,7 @@ async function confirmDeleteHousehold(hh) {
   const msg = hhCals.length
     ? `Haushalt „${hh.name}" wirklich löschen? ${hhCals.length} Kalender darin bleiben bestehen (werden zu persönlichen Kalendern des Owners).`
     : `Haushalt „${hh.name}" wirklich löschen?`;
-  if (!confirm(msg)) return;
+  if (!(await uiConfirm(msg, { title: 'Haushalt löschen?', confirmText: 'Endgültig löschen', danger: true }))) return;
   try {
     // Kalender aus dem Haushalt lösen (householdId entfernen)
     for (const c of hhCals) {
@@ -2924,7 +2999,7 @@ async function confirmDeleteHousehold(hh) {
     await deleteDoc(doc(db, 'households', hh.id));
     goHome();
   } catch (err) {
-    alert('Fehler: ' + err.message);
+    showToast('Fehler: ' + err.message, { type: 'error' });
   }
 }
 
@@ -2934,7 +3009,7 @@ function renderHhCals(cals) {
   if (!el) return;
   if (sortableHhCals) { try { sortableHhCals.destroy(); } catch {} sortableHhCals = null; }
   if (!cals.length) {
-    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>Noch kein Kalender in diesem Haushalt.</p></div>`;
+    el.innerHTML = emptyStateHtml('calendar', 'Noch kein Kalender in diesem Haushalt. Ein gemeinsamer Kalender ist für alle Mitglieder sichtbar.', 'new-hh-cal-btn', 'Ersten Kalender anlegen');
     return;
   }
   const sorted = [...cals].sort((a, b) => {
@@ -3092,18 +3167,18 @@ async function openInviteModal(hh) {
             showToast('In Zwischenablage kopiert', { type: 'success' });
             setTimeout(() => { btn.textContent = 'Kopieren'; }, 1500);
           } catch {
-            prompt('Code manuell kopieren:', btn.dataset.copy);
+            uiPrompt('Code manuell kopieren', btn.dataset.copy, { readonly: true, confirmText: 'Fertig', cancelText: '' });
           }
         });
       });
       listEl.querySelectorAll('[data-revoke]').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (!confirm(`Code „${btn.dataset.revoke}" widerrufen?`)) return;
+          if (!(await uiConfirm('Der Code kann danach nicht mehr zum Beitreten genutzt werden.', { title: `Code „${btn.dataset.revoke}“ widerrufen?`, confirmText: 'Widerrufen', danger: true }))) return;
           try {
             await deleteDoc(doc(db, 'invites', btn.dataset.revoke));
             await refreshCodes();
           } catch (err) {
-            alert('Fehler: ' + err.message);
+            showToast('Fehler: ' + err.message, { type: 'error' });
           }
         });
       });
@@ -3313,7 +3388,7 @@ function openCalendar(cal) {
   });
 
   const container = $('fc-container');
-  container.innerHTML = '<div class="loading-block"><div class="spinner"></div></div>';
+  container.innerHTML = '<div class="skeleton" style="height:520px;" aria-label="Kalender lädt …"></div>';
   // FullCalendar-Init auf nächsten Tick verschieben — Rest der Seite wird
   // sofort sichtbar, dann rendert FC im Hintergrund
   requestAnimationFrame(() => setupFullCalendar(container, cal, canEdit));
@@ -3596,7 +3671,7 @@ function openCalendarSettingsModal(cal) {
   });
 
   $('delete-btn').addEventListener('click', async () => {
-    if (!confirm(`Kalender „${cal.name}" wirklich mit allen Terminen löschen?`)) return;
+    if (!(await uiConfirm('Alle Termine darin werden ebenfalls gelöscht. Das lässt sich nicht rückgängig machen.', { title: `Kalender „${cal.name}“ löschen?`, confirmText: 'Löschen', danger: true }))) return;
     try {
       await deleteDoc(doc(db, 'calendars', cal.id));
       overlay.remove();
@@ -3770,7 +3845,7 @@ function renderItems(list) {
     : {};
 
   if (!open.length && !done.length) {
-    el.innerHTML = `<div class="empty"><p>Noch keine Einträge. Schreib oben den ersten hinein.</p></div>`;
+    el.innerHTML = emptyStateHtml('list', 'Noch keine Einträge. Schreib oben den ersten hinein.');
     return;
   }
 
@@ -3854,7 +3929,7 @@ async function addItem(list) {
     });
     await updateDoc(doc(db, 'lists', list.id), { openCount: increment(1), totalCount: increment(1) });
   } catch (err) {
-    alert('Fehler: ' + err.message);
+    showToast('Fehler: ' + err.message, { type: 'error' });
     input.value = text;
   }
 }
@@ -3881,7 +3956,7 @@ async function toggleItem(list, itemId, done) {
     // Verknüpfte Aufgaben ggf. auto-status setzen (nur beim Abhaken, nie beim Wieder-Öffnen)
     syncTasksFromListToggle(list, itemId, done).catch(err => console.error('task sync failed', err));
   } catch (err) {
-    alert('Fehler: ' + err.message);
+    showToast('Fehler: ' + err.message, { type: 'error' });
   }
 }
 
@@ -3956,19 +4031,19 @@ async function deleteItem(list, itemId) {
 async function clearDoneItems(list) {
   const doneItems = listItems.filter(i => i.done);
   if (!doneItems.length) return;
-  if (!confirm(`${doneItems.length} erledigte Einträge löschen?`)) return;
+  if (!(await uiConfirm(`${doneItems.length} erledigte Einträge werden aus der Liste gelöscht.`, { title: 'Erledigte entfernen?', confirmText: 'Entfernen', danger: true }))) return;
   try {
     await Promise.all(doneItems.map(i => deleteDoc(doc(db, 'lists', list.id, 'items', i.id))));
     await updateDoc(doc(db, 'lists', list.id), { totalCount: increment(-doneItems.length) });
   } catch (err) {
-    alert('Fehler: ' + err.message);
+    showToast('Fehler: ' + err.message, { type: 'error' });
   }
 }
 
 async function reopenAllItems(list) {
   const doneItems = listItems.filter(i => i.done);
   if (!doneItems.length) return;
-  if (!confirm(`${doneItems.length} erledigte Einträge wieder auf offen setzen? Praktisch für Wocheneinkauf: einmal Einkaufsliste anlegen, jede Woche neu abhaken.`)) return;
+  if (!(await uiConfirm(`${doneItems.length} erledigte Einträge werden wieder offen. Praktisch für den Wocheneinkauf: einmal anlegen, jede Woche neu abhaken.`, { title: 'Alle wieder öffnen?', confirmText: 'Wieder öffnen' }))) return;
   try {
     const batch = writeBatch(db);
     doneItems.forEach(i => {
@@ -3979,12 +4054,12 @@ async function reopenAllItems(list) {
     batch.update(doc(db, 'lists', list.id), { openCount: increment(doneItems.length) });
     await batch.commit();
   } catch (err) {
-    alert('Fehler: ' + err.message);
+    showToast('Fehler: ' + err.message, { type: 'error' });
   }
 }
 
 async function duplicateList(list) {
-  const name = prompt('Name für die neue Liste:', `${list.name} (Kopie)`);
+  const name = await uiPrompt('Liste duplizieren', `${list.name} (Kopie)`, { message: 'Name für die neue Liste – offene Einträge werden übernommen.', confirmText: 'Duplizieren' });
   if (!name || !name.trim()) return;
   try {
     // Neue Liste anlegen — als persönliche Liste des aktuellen Users,
@@ -4019,9 +4094,9 @@ async function duplicateList(list) {
       batch.update(newListRef, { openCount: openItems.length, totalCount: openItems.length });
       await batch.commit();
     }
-    alert(`Liste „${name.trim()}" angelegt.`);
+    showToast(`Liste „${name.trim()}“ angelegt`, { type: 'success' });
   } catch (err) {
-    alert('Fehler: ' + err.message);
+    showToast('Fehler: ' + err.message, { type: 'error' });
   }
 }
 
@@ -4089,7 +4164,7 @@ function openListSettingsModal(list) {
   });
 
   $('delete-btn').addEventListener('click', async () => {
-    if (!confirm(`Liste „${list.name}" wirklich mit allen Einträgen löschen?`)) return;
+    if (!(await uiConfirm('Alle Einträge darin werden ebenfalls gelöscht.', { title: `Liste „${list.name}“ löschen?`, confirmText: 'Löschen', danger: true }))) return;
     try {
       // Items zuerst löschen (Firestore kaskadiert nicht automatisch)
       const itemsSnap = await getDocs(collection(db, 'lists', list.id, 'items'));
@@ -4332,7 +4407,7 @@ function wireMealActions(content, plan, hh) {
   });
   content.querySelectorAll('[data-del-prop]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Vorschlag löschen?')) return;
+      if (!(await uiConfirm('', { title: 'Vorschlag löschen?', confirmText: 'Löschen', danger: true }))) return;
       const [dayKey, idxStr] = btn.dataset.delProp.split(':');
       const idx = parseInt(idxStr, 10);
       await updateMealPlan(plan, hh, p => {
@@ -4720,7 +4795,7 @@ function renderRecordsTab(content, hh) {
 function renderRecordCards(el, list, hh) {
   if (!el) return;
   if (!list.length) {
-    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>Keine Einträge in dieser Kategorie.</p></div>`;
+    el.innerHTML = el.id === 'records-list' ? emptyStateHtml('folder', 'Keine Einträge in dieser Kategorie. Versicherungen, Verträge, Impfungen – alles Wichtige an einem Ort.', 'new-record-btn', 'Eintrag anlegen') : '';
     return;
   }
   const now = Date.now();
@@ -4904,7 +4979,8 @@ const NOTE_COLORS = ['#fef08a', '#fed7aa', '#fecaca', '#e9d5ff', '#c7d2fe', '#ba
 function renderNoteCards(el, ns, emptyText) {
   if (!el) return;
   if (!ns.length) {
-    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>${escapeHtml(emptyText)}</p></div>`;
+    const ea = emptyText === 'Keine Treffer.' ? null : EMPTY_ACTIONS[el.id];
+    el.innerHTML = emptyStateHtml(ea ? ea[0] : 'search', escapeHtml(emptyText), ea?.[1], ea?.[2]);
     return;
   }
   // Favoriten zuerst, danach nach letzter Änderung
@@ -4944,7 +5020,7 @@ function renderNoteCards(el, ns, emptyText) {
       try {
         await updateDoc(doc(db, 'notes', n.id), { favorite: !n.favorite });
       } catch (err) {
-        alert('Fehler: ' + err.message);
+        showToast('Fehler: ' + err.message, { type: 'error' });
       }
     });
   });
@@ -5079,40 +5155,50 @@ function openEventModal(cal, existing, canEdit = true) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
-    <div class="modal">
-      <h2>${isNew ? 'Neuer Termin' : (canEdit ? 'Termin bearbeiten' : 'Termin')}</h2>
+    <div class="modal modal-wide modal-form">
+      <h2>${isNew ? 'Neuer Termin' : (canEdit ? 'Termin bearbeiten' : 'Termin')}<span class="modal-sub"><span class="color-dot" style="background:${escapeHtml(cal.color || '#14b8a6')};"></span>${escapeHtml(cal.name)}</span></h2>
       <div id="ev-msg"></div>
       <div class="field">
-        <label>Titel</label>
-        <input type="text" id="ev-title" value="${escapeHtml(existing?.title || '')}" ${canEdit ? '' : 'disabled'} required />
+        <input type="text" id="ev-title" class="title-input" value="${escapeHtml(existing?.title || '')}" ${canEdit ? '' : 'disabled'} placeholder="Titel des Termins" aria-label="Titel" required />
       </div>
+
+      <div class="form-group-label">${icon('clock', 'ic-sm')} Wann</div>
       <div class="field field-inline">
         <label><input type="checkbox" id="ev-allday" ${allDay ? 'checked' : ''} ${canEdit ? '' : 'disabled'} /> Ganztägig</label>
       </div>
-      <div class="field">
-        <label>Start</label>
-        <input type="${allDay ? 'date' : 'datetime-local'}" id="ev-start" value="${startDefault}" ${canEdit ? '' : 'disabled'} required />
+      <div class="field-row">
+        <div class="field">
+          <label>Start</label>
+          <input type="${allDay ? 'date' : 'datetime-local'}" id="ev-start" value="${startDefault}" ${canEdit ? '' : 'disabled'} required />
+        </div>
+        <div class="field">
+          <label>Ende</label>
+          <input type="${allDay ? 'date' : 'datetime-local'}" id="ev-end" value="${endDefault}" ${canEdit ? '' : 'disabled'} />
+        </div>
       </div>
-      <div class="field">
-        <label>Ende</label>
-        <input type="${allDay ? 'date' : 'datetime-local'}" id="ev-end" value="${endDefault}" ${canEdit ? '' : 'disabled'} />
-      </div>
-      <div class="field">
-        <label>Kategorie</label>
-        <select id="ev-category" ${canEdit ? '' : 'disabled'}>
-          ${EVENT_CATEGORIES.map(c => `<option value="${c.id}">${c.icon ? c.icon + ' ' : ''}${escapeHtml(c.label)}</option>`).join('')}
-        </select>
+
+      <div class="form-group-label">${icon('pin', 'ic-sm')} Details</div>
+      <div class="field-row">
+        <div class="field">
+          <label>Kategorie</label>
+          <select id="ev-category" ${canEdit ? '' : 'disabled'}>
+            ${EVENT_CATEGORIES.map(c => `<option value="${c.id}">${c.icon ? c.icon + ' ' : ''}${escapeHtml(c.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Wer (optional)</label>
+          <select id="ev-assignee" ${canEdit ? '' : 'disabled'}>
+            <option value="">— nicht zugewiesen —</option>
+          </select>
+        </div>
       </div>
       <div class="field">
         <label>Ort (optional)</label>
         <input type="text" id="ev-location" value="${escapeHtml(existing?.location || '')}" ${canEdit ? '' : 'disabled'} placeholder="z.B. Zuhause, Zahnarzt, ..." />
       </div>
-      <div class="field">
-        <label>Wer (optional)</label>
-        <select id="ev-assignee" ${canEdit ? '' : 'disabled'}>
-          <option value="">— nicht zugewiesen —</option>
-        </select>
-      </div>
+
+      <div class="form-group-label">${icon('repeat', 'ic-sm')} Wiederholung &amp; Erinnerung</div>
+      <div class="field-row">
       <div class="field">
         <label>Wiederholung</label>
         <select id="ev-recurrence" ${canEdit ? '' : 'disabled'}>
@@ -5124,7 +5210,7 @@ function openEventModal(cal, existing, canEdit = true) {
         </select>
       </div>
       <div class="field">
-        <label>Erinnerung (lokal — Browser muss offen sein)</label>
+        <label>Erinnerung</label>
         <select id="ev-reminder" ${canEdit ? '' : 'disabled'}>
           <option value="0">Keine</option>
           <option value="5">5 Minuten vorher</option>
@@ -5133,13 +5219,15 @@ function openEventModal(cal, existing, canEdit = true) {
           <option value="60">1 Stunde vorher</option>
           <option value="1440">1 Tag vorher</option>
         </select>
+        <div class="field-hint">Lokal – der Browser muss geöffnet sein.</div>
+      </div>
       </div>
       ${isNew && canEdit ? `
-        <div class="field" id="ev-copy-field">
-          <label>Auch in andere Kalender kopieren (optional)</label>
+        <details class="field form-more" id="ev-copy-field">
+          <summary>Auch in andere Kalender kopieren</summary>
           <div id="ev-copy-list" class="copy-cal-list"></div>
           <div class="field-hint">Kopien werden bei späteren Änderungen nicht mit-synchronisiert.</div>
-        </div>
+        </details>
       ` : ''}
       <div class="field">
         <label>Notiz (optional)</label>
@@ -5367,7 +5455,7 @@ async function handleEventChange(cal, info, kind) {
   const docData = info.event.extendedProps._doc;
   if (!docData) { info.revert(); return; }
   if (docData.recurrence && docData.recurrence !== 'none') {
-    const ok = confirm(
+    const ok = await uiConfirm(
       kind === 'resize'
         ? 'Dauer ändern — gilt für die gesamte Serie. Fortfahren?'
         : 'Dieser Termin gehört zu einer Serie. Verschieben ändert das Startdatum der Serie um denselben Betrag. Fortfahren?'
@@ -5397,7 +5485,7 @@ async function handleEventChange(cal, info, kind) {
       updatedAt: serverTimestamp()
     });
   } catch (err) {
-    alert('Verschieben fehlgeschlagen: ' + err.message);
+    showToast('Verschieben fehlgeschlagen: ' + err.message, { type: 'error' });
     info.revert();
   }
 }
@@ -5591,7 +5679,7 @@ async function renderActivityLog(hh) {
     entries.sort((a, b) => (b.at?.seconds || 0) - (a.at?.seconds || 0));
     const top = entries.slice(0, 30);
     if (!top.length) {
-      el.innerHTML = `<div class="empty" style="padding:1rem;"><p>Noch keine Aktivitäten.</p></div>`;
+      el.innerHTML = emptyStateHtml('activity', 'Noch keine Aktivitäten.');
       return;
     }
     el.innerHTML = `<div class="activity-list">${top.map(a => {
