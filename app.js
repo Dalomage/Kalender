@@ -4455,97 +4455,44 @@ async function updateMealPlan(plan, hh, mutate) {
   }
 }
 
-function findRecipeInJsonLd(json) {
-  if (!json) return null;
-  if (Array.isArray(json)) {
-    for (const item of json) { const r = findRecipeInJsonLd(item); if (r) return r; }
-    return null;
-  }
-  if (json['@graph']) return findRecipeInJsonLd(json['@graph']);
-  const t = json['@type'];
-  if (t === 'Recipe' || (Array.isArray(t) && t.includes('Recipe'))) return json;
-  return null;
-}
-
+// Zutatenzeile → { qty, text }.
+// qty ist die STÜCKZAHL für die Einkaufsliste: „2 Zwiebeln“ → 2× Zwiebeln.
+// Mengen mit Einheit bleiben im Text: „500 g Mehl“ → 1× „500 g Mehl“ (nicht 500× „g Mehl“).
+const INGREDIENT_UNIT_RE = /^(g|gr|gramm|kg|kilo|mg|ml|cl|dl|l|ltr|liter|el|tl|msp|prise|prisen|pck|päckchen|pkg|packung|dose|dosen|becher|bund|zehe|zehen|scheibe|scheiben|tasse|tassen|glas|gläser|handvoll|spritzer|schuss|stange|stangen|blatt|blätter|zweig|zweige|cup|cups|tbsp|tsp|oz|lb)\b\.?/i;
+const FRACTIONS = { '½': 0.5, '¼': 0.25, '¾': 0.75, '⅓': 1 / 3, '⅔': 2 / 3 };
 function parseIngredientLine(t) {
-  const s = String(t).trim();
-  const m = s.match(/^(\d+(?:[,.]\d+)?)\s*(.*)$/);
-  if (m) return { qty: Math.max(1, Math.round(parseFloat(m[1].replace(',', '.')))), text: m[2] || s };
-  return { qty: 1, text: s };
+  const s = String(t || '').trim().replace(/^[-–•*]\s*/, '');
+  const m = s.match(/^(\d+\s*\/\s*\d+|\d+(?:[.,]\d+)?|[½¼¾⅓⅔])\s*(.*)$/);
+  if (!m || !m[2]) return { qty: 1, text: s };
+  const rawNum = m[1].replace(/\s/g, '');
+  const num = FRACTIONS[rawNum] ?? (rawNum.includes('/') ? rawNum.split('/').reduce((a, b) => a / b) : parseFloat(rawNum.replace(',', '.')));
+  const rest = m[2].trim();
+  // Einheit, Bruch/Komma-Menge oder unplausibel große Stückzahl → ganze Zeile als Text behalten
+  if (INGREDIENT_UNIT_RE.test(rest) || !Number.isInteger(num) || num < 1 || num > 30) return { qty: 1, text: s };
+  return { qty: num, text: rest };
 }
-
-function extractRecipeFromHtml(html) {
-  const parser = new DOMParser();
-  const docHtml = parser.parseFromString(html, 'text/html');
-  const scripts = docHtml.querySelectorAll('script[type="application/ld+json"]');
-  for (const script of scripts) {
-    try {
-      const recipe = findRecipeInJsonLd(JSON.parse(script.textContent));
-      if (recipe) {
-        return {
-          name: recipe.name || '',
-          ingredients: (recipe.recipeIngredient || []).map(parseIngredientLine)
-        };
-      }
-    } catch {}
-  }
-  return null;
-}
-
-// Mehrere CORS-Proxies durchprobieren; jeder mit eigenem Response-Format.
-const RECIPE_PROXIES = [
-  { name: 'corsproxy.io', build: u => `https://corsproxy.io/?${encodeURIComponent(u)}`, extract: async r => r.text() },
-  { name: 'allorigins',   build: u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`, extract: async r => (await r.json()).contents || '' },
-  { name: 'codetabs',     build: u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`, extract: async r => r.text() },
-];
 
 async function fetchRecipeFromUrl(url) {
-  const errors = [];
-
-  // 1) Zuerst eigener Worker (zuverlässig, echter Browser-UA, 30d Cache)
-  if (WORKER_URL) {
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 10000);
-      const resp = await fetch(`${WORKER_URL}/recipe?url=${encodeURIComponent(url)}`, { signal: ctrl.signal });
-      clearTimeout(t);
-      if (resp.ok) {
-        const html = await resp.text();
-        const recipe = extractRecipeFromHtml(html);
-        if (recipe && recipe.ingredients.length) return recipe;
-        errors.push('Worker: kein JSON-LD gefunden');
-      } else {
-        errors.push(`Worker: HTTP ${resp.status}`);
-      }
-    } catch (e) {
-      errors.push(`Worker: ${e.name === 'AbortError' ? 'Timeout' : e.message}`);
-    }
+  if (!WORKER_URL) throw new Error('Rezept-Import ist noch nicht eingerichtet.');
+  let u;
+  try { u = new URL(url); } catch { throw new Error('Das ist kein gültiger Link.'); }
+  let resp;
+  try {
+    resp = await fetch(`${WORKER_URL}/recipe?url=${encodeURIComponent(u.href)}`, { signal: AbortSignal.timeout(15000) });
+  } catch (e) {
+    throw new Error(e.name === 'TimeoutError' ? 'Die Seite hat zu lange gebraucht. Bitte nochmal versuchen.' : 'Keine Verbindung – Internet prüfen.');
   }
-
-  // 2) Fallback über Community-Proxies
-  for (const proxy of RECIPE_PROXIES) {
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 8000);
-      const resp = await fetch(proxy.build(url), { signal: ctrl.signal });
-      clearTimeout(t);
-      if (!resp.ok) { errors.push(`${proxy.name}: HTTP ${resp.status}`); continue; }
-      const html = await proxy.extract(resp);
-      if (!html || html.length < 500) { errors.push(`${proxy.name}: leere Antwort`); continue; }
-      const recipe = extractRecipeFromHtml(html);
-      if (recipe && recipe.ingredients.length) return recipe;
-      // Diagnostik: bekamen wir überhaupt die Rezeptseite oder eine Bot-Wall?
-      const isBotWall = /captcha|cloudflare|access denied|blocked/i.test(html.slice(0, 4000));
-      errors.push(`${proxy.name}: ${isBotWall ? 'von Seite blockiert (Bot-Schutz)' : 'kein JSON-LD-Rezept gefunden'}`);
-    } catch (e) {
-      errors.push(`${proxy.name}: ${e.name === 'AbortError' ? 'Timeout' : e.message}`);
-    }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    if (data.error === 'blocked') throw new Error('Diese Seite blockiert den automatischen Import. Bitte Zutaten manuell einfügen.');
+    if (data.error === 'no-recipe') throw new Error('Auf der Seite wurde kein Rezept gefunden. Bitte Zutaten manuell einfügen.');
+    throw new Error(data.error || `Import fehlgeschlagen (${resp.status}).`);
   }
-  console.warn('Rezept-Import fehlgeschlagen:', errors);
-  const looksLikeBotBlock = errors.some(e => e.includes('Bot-Schutz') || e.includes('403') || e.includes('503'));
-  throw new Error(looksLikeBotBlock
-    ? 'Diese Seite blockiert den Rezept-Import. Bitte Zutaten manuell einfügen.'
-    : 'Kein Rezept auf der Seite gefunden. Bitte Zutaten manuell einfügen.');
+  return {
+    name: data.name || '',
+    servings: data.servings || '',
+    ingredients: (data.ingredients || []).map(parseIngredientLine),
+  };
 }
 
 async function fetchIngredientsFromPhoto(file) {
@@ -4668,9 +4615,7 @@ function openMealProposalModal(plan, dayKey, hh) {
     const raw = document.getElementById('mp-ings').value.trim();
     const ingredients = raw
       ? raw.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
-          const m = line.match(/^(\d+)\s+(.+)$/);
-          if (m) return { qty: parseInt(m[1], 10), text: m[2] };
-          return { qty: 1, text: line };
+          return parseIngredientLine(line);
         })
       : [];
     const proposal = { by: currentUser.uid, dish, ingredients, at: Date.now() };
