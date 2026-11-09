@@ -1005,6 +1005,21 @@ body:has(.home-tabs) #toast-container { bottom: calc(var(--tabbar-h) + 16px + en
 .field-hint { font-size: var(--fs-xs); color: var(--muted); margin-top: 6px; line-height: 1.45; }
 .field-row { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
 .field-row > .field { flex: 1 1 140px; min-width: 0; }
+.input-with-btn { display: flex; gap: var(--sp-2); align-items: stretch; }
+.input-with-btn > input { flex: 1; min-width: 0; }
+.input-with-btn > .btn { min-height: 42px; flex: 0 0 auto; }
+.field input[type="file"] { padding: 8px; font-size: var(--fs-sm); color: var(--text-2); }
+.field input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
 
 .field-inline label {
   display: flex;

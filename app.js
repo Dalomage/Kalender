@@ -15,9 +15,9 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
 
 // ── Worker (Rezept-Import & Foto-Zutaten) ────────────────────
-// Nach Worker-Deploy (siehe worker/README.md) die tatsächliche URL eintragen.
-// Solange leer, greift der Client-Fallback über Community-Proxies.
-const WORKER_URL = '';  // z.B. 'https://kalender-api.<subdomain>.workers.dev'
+// Eigener Cloudflare Worker (Quelle: worker/, Deploy siehe worker/README.md).
+// Der Foto-Import wird nur angezeigt, wenn der Worker unter /health photo:true meldet.
+const WORKER_URL = 'https://kalender-api.thunkdarts.workers.dev';
 
 // ── Firebase init ─────────────────────────────────────────────
 const configOk = firebaseConfig.apiKey && firebaseConfig.apiKey !== 'REPLACE_ME';
@@ -4518,31 +4518,32 @@ function openMealProposalModal(plan, dayKey, hh) {
       <h2>Vorschlag für ${escapeHtml(dayLabel)}</h2>
       <div id="modal-msg"></div>
       <div class="field">
-        <label>Rezept-Link (optional)</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <input type="url" id="mp-url" placeholder="https://www.chefkoch.de/..." style="flex:1;min-width:0;" />
-          <button type="button" class="btn btn-secondary btn-small" id="mp-fetch">Laden</button>
+        <label for="mp-url">Rezept-Link einfügen (optional)</label>
+        <div class="input-with-btn">
+          <input type="url" id="mp-url" placeholder="https://www.chefkoch.de/rezepte/…" inputmode="url" autocomplete="off" />
+          <button type="button" class="btn btn-secondary btn-small" id="mp-fetch">${icon('download')} Laden</button>
         </div>
-        <div class="field-hint">Wir versuchen, Gericht und Zutaten automatisch aus der Seite zu lesen (Chefkoch, Lecker, EatSmarter, u.v.m.).</div>
+        <div class="field-hint">Gericht und Zutaten werden automatisch übernommen – klappt mit Chefkoch, EatSmarter, Kitchen Stories, Lecker und den meisten Rezeptseiten.</div>
       </div>
       ${WORKER_URL ? `
-      <div class="field">
-        <label>Foto mit Zutaten (optional)</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-          <input type="file" id="mp-photo" accept="image/*" capture="environment" style="flex:1;min-width:0;" />
-          <button type="button" class="btn btn-secondary btn-small" id="mp-photo-btn">Zutaten aus Foto</button>
+      <div class="field" id="mp-photo-field" hidden>
+        <label for="mp-photo">Oder Foto mit Zutaten (optional)</label>
+        <div class="input-with-btn">
+          <input type="file" id="mp-photo" accept="image/jpeg,image/png,image/webp,image/gif" capture="environment" />
+          <button type="button" class="btn btn-secondary btn-small" id="mp-photo-btn">Zutaten erkennen</button>
         </div>
-        <div class="field-hint">Zettel, Kühlschrank oder Rezeptseite fotografieren — die Zutaten werden automatisch erkannt.</div>
+        <div class="field-hint">Rezeptzettel, Kochbuchseite oder Kühlschrank fotografieren.</div>
       </div>
       ` : ''}
+      <div class="form-group-label">${icon('meal', 'ic-sm')} Gericht</div>
       <div class="field">
-        <label>Gericht</label>
+        <label for="mp-dish">Name</label>
         <input type="text" id="mp-dish" placeholder="z.B. Pizza Margherita" required />
       </div>
       <div class="field">
-        <label>Zutaten (optional — pro Zeile eins, „2 Milch" wird als 2× Milch erkannt)</label>
-        <textarea id="mp-ings" rows="8" placeholder="500 Mehl&#10;2 Tomaten&#10;Mozzarella&#10;Basilikum"></textarea>
-        <div class="field-hint">Nur wenn du willst — dann kann man das mit einem Klick auf die Einkaufsliste übertragen.</div>
+        <label for="mp-ings">Zutaten (optional, eine pro Zeile)</label>
+        <textarea id="mp-ings" rows="8" placeholder="500 g Mehl&#10;2 Tomaten&#10;Mozzarella&#10;Basilikum"></textarea>
+        <div class="field-hint">„2 Tomaten“ wird zu 2× Tomaten, „500 g Mehl“ bleibt als Ganzes. Lässt sich später mit einem Klick auf die Einkaufsliste übertragen.</div>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
@@ -4551,14 +4552,25 @@ function openMealProposalModal(plan, dayKey, hh) {
     </div>
   `;
   document.body.appendChild(overlay);
-  document.getElementById('mp-dish').focus();
+  document.getElementById('mp-url').focus();
+  // Enter im Link-Feld lädt das Rezept
+  document.getElementById('mp-url').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('mp-fetch').click(); }
+  });
+  // Foto-Bereich nur zeigen, wenn der Worker die Foto-Erkennung eingerichtet hat
+  if (WORKER_URL) {
+    fetch(`${WORKER_URL}/health`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(h => { if (h.photo) { const f = document.getElementById('mp-photo-field'); if (f) f.hidden = false; } })
+      .catch(() => {});
+  }
 
   document.getElementById('mp-fetch').addEventListener('click', async () => {
     const url = document.getElementById('mp-url').value.trim();
     if (!url) return;
     const msg = document.getElementById('modal-msg');
     const fetchBtn = document.getElementById('mp-fetch');
-    msg.innerHTML = `<div class="msg" style="background:var(--surface2);color:var(--muted);">Rezept wird geladen …</div>`;
+    msg.innerHTML = `<div class="msg msg-info">Rezept wird geladen …</div>`;
     fetchBtn.disabled = true;
     try {
       const r = await fetchRecipeFromUrl(url);
@@ -4569,7 +4581,7 @@ function openMealProposalModal(plan, dayKey, hh) {
         const lines = r.ingredients.map(i => (i.qty > 1 ? i.qty + ' ' : '') + i.text);
         ingsArea.value = ingsArea.value.trim() ? ingsArea.value.trim() + '\n' + lines.join('\n') : lines.join('\n');
       }
-      msg.innerHTML = `<div class="msg msg-success">Rezept übernommen (${r.ingredients.length} Zutaten). Du kannst noch anpassen.</div>`;
+      msg.innerHTML = `<div class="msg msg-success">Rezept übernommen: ${r.ingredients.length} Zutaten${r.servings ? ` (für ${escapeHtml(r.servings)})` : ''}. Du kannst alles noch anpassen.</div>`;
     } catch (err) {
       msg.innerHTML = `<div class="msg msg-error">${escapeHtml(err.message)}</div>`;
     }
