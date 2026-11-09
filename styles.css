@@ -936,11 +936,12 @@ body:has(.home-tabs) #toast-container { bottom: calc(var(--tabbar-h) + 16px + en
 .btn-secondary:hover { background: var(--surface2); border-color: var(--border-strong); }
 .btn-ghost { background: transparent; color: var(--text-2); box-shadow: none; }
 .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+/* Festes, kräftiges Rot: weiße Schrift bleibt in allen Themen lesbar (≥ 4,8:1) */
 .btn-danger {
-  background: var(--danger);
+  background: #dc2626;
   color: #fff;
 }
-.btn-danger:hover { background: color-mix(in srgb, var(--danger) 85%, #000); }
+.btn-danger:hover { background: #b91c1c; }
 .btn-secondary.btn-danger, .btn-danger-soft {
   background: var(--danger-soft);
   color: var(--danger);
