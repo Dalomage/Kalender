@@ -9,5 +9,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "RATE_LIMIT"
 id = "ab6d7848c844436b9eadf36422c521ad"
 
-# Secrets (setzen via `npx wrangler secret put ANTHROPIC_API_KEY`, nicht hier):
-# - ANTHROPIC_API_KEY
+# Cloudflare Workers AI für den Foto-Import (10.000 Neuronen/Tag kostenlos;
+# im Workers-Free-Tarif bei Überschreitung Fehler statt Kosten)
+[ai]
+binding = "AI"

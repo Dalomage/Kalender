@@ -1,18 +1,16 @@
 // Cloudflare Worker — kalender-api
 // Routen:
 //   GET  /recipe?url=<rezept-url>     → { name, ingredients:[{qty,text}], servings, image } (30d Edge-Cache)
-//   POST /photo-ingredients            → { dish, ingredients:[{qty,text}] } via Claude (Haiku 5.5, Structured Outputs)
+//   POST /photo-ingredients            → { dish, ingredients:[{qty,text}] } via Cloudflare Workers AI (kostenlos)
 //   GET  /health                       → Status
 //
-// Sicherheit:
+// Sicherheit / Kosten:
 //   - /recipe gibt NUR die extrahierten Rezeptdaten (JSON) zurück, nie fremdes HTML
 //     → kein offener Proxy. Nur http(s), Antwort max. 3 MB, Timeout 10 s.
-//   - /photo-ingredients: Body max 5 MB, IP-basiertes Tages-Limit via KV
+//   - /photo-ingredients: Body max 5 MB, IP-basiertes Tages-Limit via KV.
+//     Workers AI: 10.000 Neuronen/Tag frei; im Workers-Free-Tarif gibt es bei
+//     Überschreitung einen Fehler statt Kosten.
 //   - CORS: nur die eigenen Domains (inkl. Cloudflare-Vorschauen)
-
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 
 const ORIGIN_RE = /^https:\/\/([a-z0-9-]+\.)?kalenderkaiser\.pages\.dev$/;
 const DEV_ORIGINS = new Set([
@@ -25,7 +23,7 @@ const isAllowedOrigin = o => ORIGIN_RE.test(o) || DEV_ORIGINS.has(o);
 const DAILY_PHOTO_LIMIT = 20;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_PAGE_BYTES = 3 * 1024 * 1024;
-const PHOTO_MODEL = 'claude-haiku-5-5';
+const PHOTO_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
 
 const PHOTO_PROMPT = `Du bekommst ein Foto (z. B. Rezeptzettel, Kochbuchseite, Kühlschrankinhalt oder Lebensmittel).
 Erfasse alle sichtbaren Lebensmittel-Zutaten.
@@ -34,15 +32,31 @@ Erfasse alle sichtbaren Lebensmittel-Zutaten.
 - dish: das Gericht, falls erkennbar (Rezeptüberschrift oder naheliegende Idee), sonst leer.
 - Nur was tatsächlich im Bild zu sehen ist, nichts erfinden.
 - Ist kein Lebensmittel und kein Rezept zu sehen: dish leer, ingredients leer.
-Antworte auf Deutsch.`;
+Antworte auf Deutsch und ausschließlich mit JSON im Format {"dish": "...", "ingredients": [{"qty": 1, "text": "..."}]}.`;
 
-const PhotoResult = z.object({
-  dish: z.string(),
-  ingredients: z.array(z.object({
-    qty: z.number().int(),
-    text: z.string(),
-  })),
-});
+const PHOTO_SCHEMA = {
+  type: 'object',
+  properties: {
+    dish: { type: 'string' },
+    ingredients: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { qty: { type: 'integer' }, text: { type: 'string' } },
+        required: ['qty', 'text'],
+      },
+    },
+  },
+  required: ['dish', 'ingredients'],
+};
+
+// Antwort kann bereits ein Objekt sein oder JSON-Text (ggf. mit Codefence)
+function parseModelJson(resp) {
+  if (resp && typeof resp === 'object') return resp;
+  const m = String(resp || '').match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch { return null; }
+}
 
 function corsHeaders(origin) {
   return {
@@ -177,7 +191,7 @@ function base64FromBytes(bytes) {
 const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 async function handlePhoto(request, env, origin) {
-  if (!env.ANTHROPIC_API_KEY) return json({ error: 'Foto-Erkennung ist nicht eingerichtet' }, { status: 503 }, origin);
+  if (!env.AI) return json({ error: 'Foto-Erkennung ist nicht eingerichtet' }, { status: 503 }, origin);
 
   const mediaType = (request.headers.get('Content-Type') || '').split(';')[0].trim();
   if (!SUPPORTED_IMAGE_TYPES.has(mediaType)) {
@@ -192,43 +206,44 @@ async function handlePhoto(request, env, origin) {
   const rl = await checkRateLimit(env, ip);
   if (!rl.ok) return json({ error: `Tageslimit erreicht (${DAILY_PHOTO_LIMIT} Fotos pro Tag)` }, { status: 429 }, origin);
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: 45_000 });
-  let response;
+  const dataUrl = `data:${mediaType};base64,${base64FromBytes(new Uint8Array(body))}`;
+  let result;
   try {
-    response = await client.messages.parse({
-      model: PHOTO_MODEL,
-      max_tokens: 4096,
-      output_config: { effort: 'low', format: zodOutputFormat(PhotoResult) },
+    result = await env.AI.run(PHOTO_MODEL, {
       messages: [{
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64FromBytes(new Uint8Array(body)) } },
           { type: 'text', text: PHOTO_PROMPT },
+          { type: 'image_url', image_url: { url: dataUrl } },
         ],
       }],
+      response_format: { type: 'json_schema', json_schema: PHOTO_SCHEMA },
+      max_tokens: 1024,
+      temperature: 0.1,
     });
   } catch (error) {
     // Details nur ins Worker-Protokoll (wrangler tail), nie an den Client
-    console.error('photo-ingredients:', error?.status, error?.message);
-    if (error instanceof Anthropic.RateLimitError) return json({ error: 'Erkennung gerade ausgelastet, bitte gleich nochmal' }, { status: 503 }, origin);
-    if (error instanceof Anthropic.AuthenticationError) return json({ error: 'Foto-Erkennung falsch eingerichtet (Schlüssel)' }, { status: 503 }, origin);
-    // Bildformat/-größe prüfen wir vorher selbst – ein 400 hier ist meist Konto/Guthaben, nicht das Bild
-    if (error instanceof Anthropic.BadRequestError) return json({ error: 'Foto-Erkennung gerade nicht verfügbar' }, { status: 503 }, origin);
-    if (error instanceof Anthropic.APIError) return json({ error: `Erkennung fehlgeschlagen (${error.status ?? 'Netz'})` }, { status: 502 }, origin);
-    return json({ error: 'Erkennung fehlgeschlagen' }, { status: 502 }, origin);
+    console.error('photo-ingredients:', error?.message || error);
+    const msg = String(error?.message || '');
+    if (/limit|quota|neuron|4006|3036/i.test(msg)) {
+      return json({ error: 'Tageskontingent der Foto-Erkennung aufgebraucht – morgen wieder verfügbar' }, { status: 503 }, origin);
+    }
+    return json({ error: 'Foto-Erkennung gerade nicht verfügbar' }, { status: 503 }, origin);
   }
 
-  if (response.stop_reason === 'refusal') return json({ error: 'Dieses Bild kann nicht ausgewertet werden' }, { status: 422 }, origin);
-  const out = response.parsed_output;
-  if (!out) return json({ error: 'Erkennung lieferte kein Ergebnis' }, { status: 502 }, origin);
+  const out = parseModelJson(result?.response);
+  if (!out || !Array.isArray(out.ingredients)) {
+    console.error('photo-ingredients: unerwartete Antwort', JSON.stringify(result).slice(0, 500));
+    return json({ error: 'Erkennung lieferte kein Ergebnis' }, { status: 502 }, origin);
+  }
 
   const ingredients = out.ingredients
-    .filter(i => i.text && i.text.trim())
-    .map(i => ({ qty: Math.max(1, Math.min(99, Math.round(i.qty) || 1)), text: i.text.trim().slice(0, 200) }))
+    .filter(i => i && typeof i.text === 'string' && i.text.trim())
+    .map(i => ({ qty: Math.max(1, Math.min(99, Math.round(Number(i.qty)) || 1)), text: i.text.trim().slice(0, 200) }))
     .slice(0, 60);
 
   return json({
-    dish: out.dish.trim().slice(0, 100),
+    dish: String(out.dish || '').trim().slice(0, 100),
     ingredients,
     usage: { today: rl.count, limit: DAILY_PHOTO_LIMIT },
   }, {}, origin);
@@ -242,7 +257,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin) });
     if (pathname === '/recipe' && request.method === 'GET') return handleRecipe(request, ctx, origin);
     if (pathname === '/photo-ingredients' && request.method === 'POST') return handlePhoto(request, env, origin);
-    if (pathname === '/health') return json({ ok: true, photo: !!env.ANTHROPIC_API_KEY, rateLimit: !!env.RATE_LIMIT }, {}, origin);
+    if (pathname === '/health') return json({ ok: true, photo: !!env.AI, rateLimit: !!env.RATE_LIMIT }, {}, origin);
     return json({ error: 'not found' }, { status: 404 }, origin);
   },
 };
