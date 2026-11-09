@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0d9488">
+<meta name="theme-color" content="#0b0d10">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Kalender">
@@ -23,13 +23,14 @@
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"
         integrity="sha384-sPwMflxqfAN+Q5mvlkLmHiX3PORGbZSXHiSGPTXT9VHCD/AB+b+r+vJWsqprv+7k"
         crossorigin="anonymous"></script>
-<title>📅 Familien-Kalender</title>
+<link rel="preload" href="fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+<title>Kalender</title>
 </head>
 <body>
 
 <div id="loading">
-  <div class="spinner"></div>
-  <div style="color: var(--muted); font-size: 0.85rem;">Lade …</div>
+  <img class="loading-mark" src="logo.svg" alt="" width="52" height="52">
+  <div>Lade …</div>
 </div>
 
 <div id="login" class="hidden"></div>

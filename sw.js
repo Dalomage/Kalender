@@ -1,9 +1,9 @@
 // Kalender Service Worker — "network-first" für App-Shell
 // Sobald online, wird immer die aktuellste Version geliefert; Cache dient nur als Offline-Fallback.
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE_NAME = `kalender-${VERSION}`;
-const ASSETS = ['./', './index.html', './styles.css', './app.js', './firebase-config.js', './manifest.json', './logo.svg'];
+const ASSETS = ['./', './index.html', './styles.css', './app.js', './firebase-config.js', './manifest.json', './logo.svg', './fonts/inter-latin-var.woff2', './fonts/inter-latin-ext-var.woff2'];
 
 self.addEventListener('install', e => {
   e.waitUntil(

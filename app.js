@@ -52,6 +52,57 @@ const loadingEl = $('loading');
 const loginEl = $('login');
 const appEl = $('app');
 
+// ── Symbole (Linien-Icons, Pfade nach Lucide, ISC-Lizenz) ─────
+const ICONS = {
+  calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  dashboard: '<rect width="7" height="9" x="3" y="3" rx="1.5"/><rect width="7" height="5" x="14" y="3" rx="1.5"/><rect width="7" height="9" x="14" y="12" rx="1.5"/><rect width="7" height="5" x="3" y="16" rx="1.5"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  tasks: '<rect width="18" height="18" x="3" y="3" rx="3"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  note: '<path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M15 3v5a1 1 0 0 0 1 1h5"/>',
+  meal: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
+  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/>',
+  back: '<path d="m15 18-6-6 6-6"/>',
+  chevronRight: '<path d="m9 18 6-6-6-6"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  settings: '<path d="M20 7h-9M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  grip: '<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>',
+  star: '<path d="M12 2.8 14.9 8.7l6.5.9-4.7 4.6 1.1 6.5L12 17.6l-5.8 3.1 1.1-6.5L2.6 9.6l6.5-.9z"/>',
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>',
+  pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  copy: '<rect width="13" height="13" x="9" y="9" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  trash: '<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  undo: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  chart: '<path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/>',
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  cart: '<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+  subtasks: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="m9 12 2 2 4-4"/>',
+  door: '<path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14M2 20h20M14 12v.01"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  jump: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M10 16h6M13 13l3 3-3 3"/>',
+};
+function icon(name, cls = '') {
+  return `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[name] || ''}</svg>`;
+}
+function roleLabel(role) {
+  return { owner: 'Eigentümer', editor: 'Bearbeiten', viewer: 'Nur ansehen' }[role] || (role ? String(role) : 'Geteilt');
+}
+function initials(name) {
+  const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] || '?') + (parts[1]?.[0] || '')).toUpperCase();
+}
+
 // ── State ─────────────────────────────────────────────────────
 let currentUser = null;
 
@@ -194,7 +245,7 @@ async function updateWeatherWidget() {
   const wEl = document.getElementById('dash-weather');
   if (!wEl) return;
   if (!myProfile?.weatherLat) {
-    wEl.innerHTML = `<button class="btn btn-secondary btn-small" id="weather-set-btn">📍 Ort für Wetter setzen</button>`;
+    wEl.innerHTML = `<button class="btn btn-secondary btn-small" id="weather-set-btn">${icon('pin')} Ort für Wetter festlegen</button>`;
     document.getElementById('weather-set-btn')?.addEventListener('click', openWeatherLocationModal);
     return;
   }
@@ -228,9 +279,11 @@ function renderWeather(wEl, data) {
     <button class="weather-widget" id="weather-widget-btn" title="Ort ändern">
       <div class="weather-now">
         <div class="weather-icon">${currentIcon}</div>
-        <div class="weather-temp">${currentTemp}°</div>
+        <div>
+          <div class="weather-temp">${currentTemp}°</div>
+          ${city ? `<div class="weather-city">${icon('pin', 'ic-xs')} ${escapeHtml(city)}</div>` : ''}
+        </div>
       </div>
-      <div class="weather-city">${escapeHtml(city)}</div>
       <div class="weather-forecast">
         ${days.map(d => `
           <div class="weather-day">
@@ -334,36 +387,31 @@ function avatarHtml(uid, size = 'md') {
   return `<span class="avatar avatar-${size}" style="background:${color};" aria-hidden="true">${emoji || (nameFor(uid).charAt(0).toUpperCase() || '?')}</span>`;
 }
 
+// bg/surface/primary nur für die Vorschau-Kacheln im Profil und die Statusleiste
 const THEMES = [
-  { id: 'dark',     label: '🌙 Dark Teal (Standard)' },
-  { id: 'light',    label: '☀️ Hell' },
-  { id: 'sepia',    label: '📜 Sepia (Papier)' },
-  { id: 'midnight', label: '🌌 Midnight' },
-  { id: 'nord',     label: '❄️ Nord' },
-  { id: 'dracula',  label: '🧛 Dracula' },
-  { id: 'mocha',    label: '☕ Catppuccin Mocha' },
-  { id: 'slate',    label: '⚫ Slate (Monochrom)' },
-  { id: 'ocean',    label: '🌊 Ocean' },
-  { id: 'sunset',   label: '🌅 Sunset' },
-  { id: 'forest',   label: '🌲 Forest' },
-  { id: 'rose',     label: '🌸 Rose' },
-  { id: 'neon',     label: '💫 Neon Cyber' }
+  { id: 'dark',     label: 'Dunkel (Standard)', bg: '#0b0d10', surface: '#15191e', primary: '#2dd4bf' },
+  { id: 'light',    label: 'Hell',              bg: '#f5f6f8', surface: '#ffffff', primary: '#0d9488' },
+  { id: 'sepia',    label: 'Sepia',             bg: '#f3ecdf', surface: '#fbf8f2', primary: '#8b5e34' },
+  { id: 'midnight', label: 'Midnight',          bg: '#05070d', surface: '#0e1320', primary: '#60a5fa' },
+  { id: 'nord',     label: 'Nord',              bg: '#2b303b', surface: '#353c4a', primary: '#88c0d0' },
+  { id: 'dracula',  label: 'Dracula',           bg: '#1e1f29', surface: '#282a36', primary: '#bd93f9' },
+  { id: 'mocha',    label: 'Mocha',             bg: '#14141f', surface: '#1e1e2e', primary: '#cba6f7' },
+  { id: 'slate',    label: 'Slate',             bg: '#0a0a0b', surface: '#17171a', primary: '#f4f4f5' },
+  { id: 'ocean',    label: 'Ocean',             bg: '#051522', surface: '#0c2438', primary: '#38bdf8' },
+  { id: 'sunset',   label: 'Sunset',            bg: '#170d09', surface: '#261710', primary: '#fb923c' },
+  { id: 'forest',   label: 'Forest',            bg: '#08130d', surface: '#102118', primary: '#4ade80' },
+  { id: 'rose',     label: 'Rose',              bg: '#170a13', surface: '#261220', primary: '#f472b6' },
+  { id: 'neon',     label: 'Neon',              bg: '#08050f', surface: '#130c25', primary: '#e879f9' }
 ];
 function applyTheme(themeId, kidsMode, weekdayAccents) {
   document.body.setAttribute('data-theme', themeId || 'dark');
   document.body.classList.toggle('kids-mode', !!kidsMode);
   document.body.classList.toggle('weekday-accents', !!weekdayAccents);
-  // theme-color meta für Statusbar aktualisieren
+  // theme-color meta für Statusleiste: passend zum Seitenhintergrund
   const tc = document.querySelector('meta[name="theme-color"]');
   if (tc) {
-    const map = {
-      dark: '#0d9488', light: '#0d9488', ocean: '#0891b2',
-      sunset: '#f97316', forest: '#22c55e', rose: '#ec4899',
-      midnight: '#3b82f6', nord: '#88c0d0', dracula: '#bd93f9',
-      mocha: '#cba6f7', slate: '#71717a', neon: '#f0abfc',
-      sepia: '#8b6f47'
-    };
-    tc.setAttribute('content', map[themeId] || '#0d9488');
+    const t = THEMES.find(x => x.id === themeId) || THEMES[0];
+    tc.setAttribute('content', t.bg);
   }
 }
 
@@ -620,8 +668,13 @@ function renderLogin() {
   let mode = 'login';
   loginEl.innerHTML = `
     <div class="login-box">
-      <div class="login-title">📅 Kalender</div>
-      <div class="login-sub">Melde dich an oder erstelle ein Konto</div>
+      <div class="login-brand">
+        ${brandMarkHtml()}
+        <div>
+          <div class="login-title">Kalender</div>
+          <div class="login-sub">Termine, Listen und Aufgaben – für die ganze Familie</div>
+        </div>
+      </div>
       <div class="login-tabs">
         <button data-mode="login" class="active">Anmelden</button>
         <button data-mode="register">Registrieren</button>
@@ -722,17 +775,22 @@ function showMsg(text, type = 'error') {
 function renderVerifyEmailScreen(user) {
   loginEl.innerHTML = `
     <div class="login-box">
-      <div class="login-title">📅 Kalender</div>
-      <div class="login-sub" style="margin-bottom:1rem;">E-Mail bestätigen</div>
-      <p style="color:var(--text);font-size:0.9rem;margin-bottom:1rem;">
+      <div class="login-brand">
+        ${brandMarkHtml()}
+        <div>
+          <div class="login-title">E-Mail bestätigen</div>
+          <div class="login-sub">Nur noch ein Schritt</div>
+        </div>
+      </div>
+      <p class="login-text">
         Wir haben dir eine Bestätigungs-E-Mail an<br>
         <b>${escapeHtml(user.email)}</b><br>
         geschickt. Bitte klick den Link darin und lade danach diese Seite neu.
       </p>
       <button class="btn" id="verify-reload">Ich hab bestätigt — neu laden</button>
-      <div class="login-footer" style="margin-top:0.75rem;">
+      <div class="login-footer">
         <button type="button" class="login-link" id="verify-resend">E-Mail erneut senden</button>
-        <span style="color:var(--muted);"> · </span>
+        <span class="login-sep">·</span>
         <button type="button" class="login-link" id="verify-logout">Abmelden</button>
       </div>
       <div id="verify-msg"></div>
@@ -941,6 +999,7 @@ function openChangeEmailModal() {
 
 // ── Rendering-Router ──────────────────────────────────────────
 function renderCurrent() {
+  renderSidebarScopes();
   if (view === 'home') {
     // Home-Layout nicht komplett neu bauen wenn schon da — sonst
     // rennen bei jedem Snapshot mehrere Dashboard-Fetches parallel
@@ -990,28 +1049,212 @@ function goHome() {
   renderHome();
 }
 
-// ── Topbar ────────────────────────────────────────────────────
-function topbarHtml(extra = '', showSearch = false) {
+// ── Tastatur: Karten mit role="button" per Enter/Leertaste, Escape schließt ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if ($('sidebar')?.classList.contains('open')) { closeDrawer(); return; }
+    const overlays = document.querySelectorAll('.modal-overlay');
+    const top = overlays[overlays.length - 1];
+    if (top) {
+      const cancel = top.querySelector('#cancel-btn');
+      if (cancel) cancel.click();
+    }
+    return;
+  }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target?.getAttribute?.('role') === 'button' && e.target.tagName !== 'BUTTON') {
+    e.preventDefault();
+    e.target.click();
+  }
+});
+
+// ── App-Hülle: Seitenleiste + Kopfleiste ──────────────────────
+const NAV_PERSONAL = [
+  { tab: 'dashboard', label: 'Übersicht', icon: 'dashboard' },
+  { tab: 'calendars', label: 'Kalender',  icon: 'calendar' },
+  { tab: 'lists',     label: 'Listen',    icon: 'list' },
+  { tab: 'tasks',     label: 'Aufgaben',  icon: 'tasks' },
+  { tab: 'notes',     label: 'Notizen',   icon: 'note' },
+];
+const NAV_HOUSEHOLD = [
+  ...NAV_PERSONAL,
+  { tab: 'meal',    label: 'Essen',      icon: 'meal' },
+  { tab: 'records', label: 'Akte',       icon: 'folder' },
+  { tab: 'members', label: 'Mitglieder', icon: 'users' },
+];
+
+// Aktiver Bereich (null = persönlich) und aktiver Reiter – abgeleitet aus dem State
+function activeScopeId() {
+  if (view === 'household') return currentHousehold?.id || null;
+  if (view === 'calendar') return currentCalendar?.householdId || null;
+  if (view === 'list') return currentList?.householdId || null;
+  return null;
+}
+function activeNavTab() {
+  if (view === 'household') return householdTab;
+  if (view === 'calendar') return 'calendars';
+  if (view === 'list') return 'lists';
+  return homeTab;
+}
+
+function brandMarkHtml() {
+  return `<span class="brand-mark">${icon('calendar')}</span>`;
+}
+
+function householdTileHtml(h) {
+  return `<span class="scope-tile" style="background:${escapeHtml(defaultAvatarColor(h.id))};">${escapeHtml(initials(h.name))}</span>`;
+}
+
+function sidebarScopesHtml() {
+  const scopeId = activeScopeId();
   return `
-    <header class="topbar">
-      <h1>📅 Kalender</h1>
-      ${extra}
-      <div class="topbar-spacer"></div>
-      ${showSearch ? '<button class="logout-btn" id="search-btn" title="Termine suchen">🔍</button>' : ''}
-      <button class="user-badge user-badge-btn" id="profile-btn" title="Profil">
-        ${avatarHtml(currentUser.uid, 'sm')}
-        <span class="user-badge-full">${escapeHtml(myProfile?.name || currentUser.email)}</span>
+    <button class="nav-item ${scopeId === null ? 'active' : ''}" data-nav-scope="">
+      <span class="scope-tile personal">${icon('user')}</span>
+      <span class="nav-item-label">Persönlich</span>
+    </button>
+    ${households.map(h => `
+      <button class="nav-item ${scopeId === h.id ? 'active' : ''}" data-nav-scope="${h.id}">
+        ${householdTileHtml(h)}
+        <span class="nav-item-label">${escapeHtml(h.name)}</span>
+        <span class="nav-item-meta">${Object.keys(h.members || {}).length}</span>
       </button>
-      <button class="logout-btn" id="logout-btn">Abmelden</button>
+    `).join('')}
+  `;
+}
+
+function sidebarHtml() {
+  const scopeId = activeScopeId();
+  const tab = activeNavTab();
+  const nav = scopeId ? NAV_HOUSEHOLD : NAV_PERSONAL;
+  return `
+    <aside class="sidebar" id="sidebar" aria-label="Navigation">
+      <button class="brand" data-nav-scope="" data-nav-tab="dashboard">
+        ${brandMarkHtml()}
+        <span>Kalender<span class="brand-sub">Familie &amp; Alltag</span></span>
+      </button>
+
+      <div class="nav-label">
+        <span>Bereiche</span>
+        <span class="nav-label-actions">
+          <button class="nav-mini" id="side-join-hh" title="Haushalt beitreten" aria-label="Haushalt beitreten">${icon('link')}</button>
+          <button class="nav-mini" id="side-new-hh" title="Neuer Haushalt" aria-label="Neuer Haushalt">${icon('plus')}</button>
+        </span>
+      </div>
+      <nav class="nav" id="sidebar-scopes">${sidebarScopesHtml()}</nav>
+
+      <div class="nav-label"><span>${scopeId ? 'Haushalt' : 'Persönlich'}</span></div>
+      <nav class="nav">
+        ${nav.map(n => `
+          <button class="nav-item ${n.tab === tab ? 'active' : ''}" data-nav-tab="${n.tab}">
+            ${icon(n.icon)}
+            <span class="nav-item-label">${n.label}</span>
+          </button>
+        `).join('')}
+      </nav>
+
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-foot">
+        <button class="sidebar-user" id="side-profile" title="Profil & Design">
+          ${avatarHtml(currentUser.uid, 'sm')}
+          <div>
+            <div class="sidebar-user-name">${escapeHtml(myProfile?.name || currentUser.email)}</div>
+            <div class="sidebar-user-mail">${escapeHtml(currentUser.email || '')}</div>
+          </div>
+        </button>
+        <button class="icon-btn square" id="logout-btn" title="Abmelden" aria-label="Abmelden">${icon('logout')}</button>
+      </div>
+    </aside>
+  `;
+}
+
+function topbarHtml(extra = '', showSearch = false) {
+  const scopeId = activeScopeId();
+  const scopeName = scopeId ? (households.find(h => h.id === scopeId)?.name || 'Haushalt') : 'Persönlich';
+  const tabLabel = (scopeId ? NAV_HOUSEHOLD : NAV_PERSONAL).find(n => n.tab === activeNavTab())?.label || '';
+  return `
+    ${sidebarHtml()}
+    <header class="topbar">
+      <button class="icon-btn square menu-btn" id="menu-btn" aria-label="Menü öffnen" aria-controls="sidebar">${icon('menu')}</button>
+      ${extra || `
+        <h1>${brandMarkHtml()} Kalender</h1>
+        <div class="topbar-crumbs"><span>${escapeHtml(scopeName)}</span>${icon('chevronRight', 'ic-xs')}<b>${escapeHtml(tabLabel)}</b></div>
+      `}
+      <div class="topbar-spacer"></div>
+      ${showSearch ? `<button class="icon-btn search-btn" id="search-btn" title="Termine suchen" aria-label="Termine suchen">${icon('search')}<span class="search-btn-label">Suchen</span></button>` : ''}
+      <button class="user-badge user-badge-btn" id="profile-btn" title="Profil" aria-label="Profil">
+        ${avatarHtml(currentUser.uid, 'sm')}
+      </button>
     </header>
   `;
 }
+
+// Zurück-Button für Detailansichten (Kalender, Liste, Haushalt)
+function backBtnHtml(label = 'Zurück') {
+  return `<button class="icon-btn back-btn" id="back-btn" aria-label="${escapeHtml(label)}">${icon('back')}<span class="back-label">${escapeHtml(label)}</span></button>`;
+}
+
+function closeDrawer() {
+  $('sidebar')?.classList.remove('open');
+  document.querySelector('.drawer-backdrop')?.remove();
+}
+function openDrawer() {
+  const sb = $('sidebar');
+  if (!sb) return;
+  sb.classList.add('open');
+  const bd = document.createElement('div');
+  bd.className = 'drawer-backdrop';
+  bd.addEventListener('click', closeDrawer);
+  document.body.appendChild(bd);
+}
+
+// Navigation aus der Seitenleiste: Detailansicht sauber verlassen, dann Bereich/Reiter öffnen
+function navTo(hhId, tab) {
+  closeDrawer();
+  if (hhId) {
+    const hh = households.find(h => h.id === hhId);
+    if (!hh) return;
+    if (unsubs.events) { unsubs.events(); unsubs.events = null; }
+    if (unsubs.items) { unsubs.items(); unsubs.items = null; }
+    if (fcInstance) { fcInstance.destroy(); fcInstance = null; }
+    overlayCalendars.clear();
+    currentCalendar = null;
+    currentList = null;
+    householdTab = NAV_HOUSEHOLD.some(n => n.tab === tab) ? tab : 'dashboard';
+    openHousehold(hh);
+  } else {
+    homeTab = NAV_PERSONAL.some(n => n.tab === tab) ? tab : 'dashboard';
+    goHome();
+  }
+  window.scrollTo({ top: 0 });
+}
+
+function wireSidebarScopes() {
+  document.querySelectorAll('#sidebar-scopes [data-nav-scope]').forEach(btn => {
+    btn.addEventListener('click', () => navTo(btn.dataset.navScope || null, activeNavTab()));
+  });
+}
+function renderSidebarScopes() {
+  const el = $('sidebar-scopes');
+  if (!el) return;
+  el.innerHTML = sidebarScopesHtml();
+  wireSidebarScopes();
+}
+
 function wireLogout() {
   $('logout-btn').addEventListener('click', () => signOut(auth));
   const sb = $('search-btn');
   if (sb) sb.addEventListener('click', openSearchModal);
   const pb = $('profile-btn');
   if (pb) pb.addEventListener('click', openProfileModal);
+  // Seitenleiste
+  $('menu-btn')?.addEventListener('click', openDrawer);
+  $('side-profile')?.addEventListener('click', () => { closeDrawer(); openProfileModal(); });
+  $('side-new-hh')?.addEventListener('click', () => { closeDrawer(); openNewHouseholdModal(); });
+  $('side-join-hh')?.addEventListener('click', () => { closeDrawer(); openJoinHouseholdModal(); });
+  document.querySelector('.sidebar .brand')?.addEventListener('click', () => navTo(null, 'dashboard'));
+  wireSidebarScopes();
+  document.querySelectorAll('.sidebar [data-nav-tab]:not(.brand)').forEach(btn => {
+    btn.addEventListener('click', () => navTo(activeScopeId(), btn.dataset.navTab));
+  });
 }
 
 // ── Profil-Modal ──────────────────────────────────────────────
@@ -1019,8 +1262,8 @@ function openProfileModal() {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
-    <div class="modal">
-      <h2>Dein Profil</h2>
+    <div class="modal modal-wide">
+      <h2>Profil &amp; Design</h2>
       <div id="modal-msg"></div>
       <div class="field">
         <label>Anzeigename</label>
@@ -1035,7 +1278,7 @@ function openProfileModal() {
       </div>
       <div class="field">
         <label>Passwort</label>
-        <button type="button" class="btn btn-secondary btn-small" id="pf-change-pw">🔒 Passwort ändern</button>
+        <button type="button" class="btn btn-secondary btn-small" id="pf-change-pw">${icon('lock')} Passwort ändern</button>
       </div>
       <div class="field">
         <label>Avatar</label>
@@ -1052,15 +1295,27 @@ function openProfileModal() {
       </div>
       <div class="field">
         <label>Design</label>
-        <select id="pf-theme">
+        <select id="pf-theme" class="sr-only" tabindex="-1" aria-hidden="true">
           ${THEMES.map(t => `<option value="${t.id}" ${myProfile?.theme === t.id ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
         </select>
+        <div class="theme-grid" role="radiogroup" aria-label="Design">
+          ${THEMES.map(t => {
+            const sel = (myProfile?.theme || 'dark') === t.id;
+            return `
+            <button type="button" class="theme-tile ${sel ? 'selected' : ''}" data-theme-pick="${t.id}" role="radio" aria-checked="${sel}">
+              <span class="theme-preview" style="background:${t.bg};">
+                <span class="theme-preview-card" style="background:${t.surface};"><span style="background:${t.primary};"></span></span>
+              </span>
+              <span class="theme-name">${escapeHtml(t.label)}</span>
+            </button>`;
+          }).join('')}
+        </div>
       </div>
       <div class="field field-inline">
-        <label><input type="checkbox" id="pf-weekday" ${myProfile?.weekdayAccents ? 'checked' : ''} /> 🎨 Wochentage farblich markieren</label>
+        <label><input type="checkbox" id="pf-weekday" ${myProfile?.weekdayAccents ? 'checked' : ''} /> Wochentage farblich markieren</label>
       </div>
       <div class="field field-inline">
-        <label><input type="checkbox" id="pf-kids" ${myProfile?.kidsMode ? 'checked' : ''} /> 👶 Kinder-Modus (größere Buttons, größere Schrift)</label>
+        <label><input type="checkbox" id="pf-kids" ${myProfile?.kidsMode ? 'checked' : ''} /> Kinder-Modus (größere Buttons, größere Schrift)</label>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="cancel-btn">Abbrechen</button>
@@ -1101,6 +1356,17 @@ function openProfileModal() {
     });
   });
   $('pf-name').addEventListener('input', updateAvatarPreview);
+
+  // Design-Kacheln steuern das (versteckte) Select
+  overlay.querySelectorAll('[data-theme-pick]').forEach(tile => {
+    tile.addEventListener('click', () => {
+      overlay.querySelectorAll('[data-theme-pick]').forEach(t => { t.classList.remove('selected'); t.setAttribute('aria-checked', 'false'); });
+      tile.classList.add('selected');
+      tile.setAttribute('aria-checked', 'true');
+      $('pf-theme').value = tile.dataset.themePick;
+      $('pf-theme').dispatchEvent(new Event('change'));
+    });
+  });
 
   // Live-Preview: Theme sofort anwenden während Auswahl
   $('pf-theme').addEventListener('change', () => applyTheme($('pf-theme').value, $('pf-kids').checked, $('pf-weekday').checked));
@@ -1167,25 +1433,25 @@ function categoryIcon(id) {
 function renderHome() {
   appEl.innerHTML = `
     ${topbarHtml('', true)}
-    <main class="content">
-      <div class="section-title">
-        <span>Haushalte</span>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-secondary btn-small" id="join-hh-btn">🔗 Beitreten</button>
-          <button class="btn btn-small" id="new-hh-btn">+ Neuer Haushalt</button>
+    <main class="content" data-home-tab="${homeTab}">
+      <section class="home-section home-households" id="home-households">
+        <div class="section-title">
+          <span>Haushalte</span>
+          <div>
+            <button class="btn btn-secondary btn-small" id="join-hh-btn">${icon('link')} Beitreten</button>
+            <button class="btn btn-small" id="new-hh-btn">${icon('plus')} Neuer Haushalt</button>
+          </div>
         </div>
-      </div>
-      <div id="households"></div>
+        <div id="households"></div>
+      </section>
 
-      <div class="home-tabs">
-        <button data-tab="dashboard" class="${homeTab === 'dashboard' ? 'active' : ''}">📊 Dashboard</button>
-        <button data-tab="calendars" class="${homeTab === 'calendars' ? 'active' : ''}">📅 Kalender</button>
-        <button data-tab="lists" class="${homeTab === 'lists' ? 'active' : ''}">📝 Listen</button>
-        <button data-tab="tasks" class="${homeTab === 'tasks' ? 'active' : ''}">✅ Aufgaben</button>
-        <button data-tab="notes" class="${homeTab === 'notes' ? 'active' : ''}">📌 Notizen</button>
-      </div>
+      <nav class="home-tabs" aria-label="Ansichten">
+        ${NAV_PERSONAL.map(n => `
+          <button data-tab="${n.tab}" class="${homeTab === n.tab ? 'active' : ''}" ${homeTab === n.tab ? 'aria-current="page"' : ''}>${icon(n.icon)}<span>${n.label}</span></button>
+        `).join('')}
+      </nav>
 
-      <div id="home-tab-content"></div>
+      <div id="home-tab-content" class="tab-content"></div>
     </main>
   `;
   wireLogout();
@@ -1218,11 +1484,11 @@ function renderNotesTab(content) {
   const personalNotes = notes.filter(n => !n.householdId);
   content.innerHTML = `
     <div class="section-title">
-      <span>Persönliche Notizen</span>
-      <button class="btn btn-small" id="new-note-btn">+ Neue Notiz</button>
+      <span>Notizen</span>
+      <button class="btn btn-small" id="new-note-btn">${icon('plus')} Neue Notiz</button>
     </div>
     <div class="notes-search-wrap">
-      <input type="text" id="notes-search" placeholder="🔍 Suchen: Text oder #tag …" value="${escapeHtml(notesSearchTerm)}" autocomplete="off" />
+      <input type="text" id="notes-search" placeholder="Suchen: Text oder #tag …" value="${escapeHtml(notesSearchTerm)}" autocomplete="off" />
     </div>
     <div id="personal-notes"></div>
   `;
@@ -1268,7 +1534,7 @@ function renderTasksTab(content, hh) {
   const scoped = hh
     ? tasks.filter(t => t.householdId === hh.id)
     : tasks.filter(t => !t.householdId);
-  const scopeLabel = hh ? 'Aufgaben in diesem Haushalt' : 'Persönliche Aufgaben';
+  const scopeLabel = 'Aufgaben';
 
   const openCount = scoped.filter(t => (t.status || 'open') === 'open').length;
   const doingCount = scoped.filter(t => t.status === 'doing').length;
@@ -1277,12 +1543,12 @@ function renderTasksTab(content, hh) {
   content.innerHTML = `
     <div class="section-title">
       <span>${scopeLabel}</span>
-      <button class="btn btn-small" id="new-task-btn">+ Neue Aufgabe</button>
+      <button class="btn btn-small" id="new-task-btn">${icon('plus')} Neue Aufgabe</button>
     </div>
     <div class="task-board-tabs">
-      <button data-taskstatus="open" class="${tasksBoardTab === 'open' ? 'active' : ''}">📥 Offen (${openCount})</button>
-      <button data-taskstatus="doing" class="${tasksBoardTab === 'doing' ? 'active' : ''}">⚙️ In Arbeit (${doingCount})</button>
-      <button data-taskstatus="done" class="${tasksBoardTab === 'done' ? 'active' : ''}">✅ Erledigt (${doneCount})</button>
+      <button data-taskstatus="open" class="${tasksBoardTab === 'open' ? 'active' : ''}"><span class="status-dot status-open"></span> Offen <span class="tab-count">${openCount}</span></button>
+      <button data-taskstatus="doing" class="${tasksBoardTab === 'doing' ? 'active' : ''}"><span class="status-dot status-doing"></span> In Arbeit <span class="tab-count">${doingCount}</span></button>
+      <button data-taskstatus="done" class="${tasksBoardTab === 'done' ? 'active' : ''}"><span class="status-dot status-done"></span> Erledigt <span class="tab-count">${doneCount}</span></button>
     </div>
     <div class="task-board" id="task-board"></div>
   `;
@@ -1309,7 +1575,7 @@ function renderTaskBoard(scoped, hh) {
     return `
       <div class="task-col ${active}" data-col="${s.key}">
         <div class="task-col-header">
-          <span>${s.emoji} ${s.label}</span>
+          <span><span class="status-dot status-${s.key}"></span> ${s.label}</span>
           <span class="task-col-count">${items.length}</span>
         </div>
         <div class="task-col-body">
@@ -1431,32 +1697,33 @@ function renderTaskCard(t) {
   const subTotal = (t.subtasks || []).length;
   const assigneeName = t.assignee ? nameFor(t.assignee) : '';
   const nextStatus = t.status === 'open' ? 'doing' : (t.status === 'doing' ? 'done' : 'open');
-  const nextStatusEmoji = TASK_STATUSES.find(s => s.key === nextStatus).emoji;
+  const nextStatusLabel = TASK_STATUSES.find(s => s.key === nextStatus).label;
+  const curStatus = t.status || 'open';
   const isDone = t.status === 'done';
   return `
     <div class="task-card ${isDone ? 'task-done' : ''} ${due?.overdue ? 'task-overdue' : ''}" data-task-id="${t.id}">
-      <button class="task-status-btn" data-task-id="${t.id}" title="Status wechseln">
-        ${nextStatusEmoji}
+      <button class="task-status-btn st-${curStatus}" data-task-id="${t.id}" title="Status wechseln → ${nextStatusLabel}" aria-label="Status wechseln zu ${nextStatusLabel}">
+        ${icon('check')}
       </button>
       <div class="task-card-body">
         <div class="task-card-title">
-          <span class="task-prio" title="${prio.label}">${prio.dot}</span>
-          ${escapeHtml(t.title || '(ohne Titel)')}
+          <span class="task-prio" title="Priorität: ${prio.label}"><span class="prio-dot prio-${escapeHtml(t.priority || 'normal')}"></span></span>
+          <span>${escapeHtml(t.title || '(ohne Titel)')}</span>
         </div>
         <div class="task-card-meta">
-          ${due ? `<span class="task-due ${due.overdue ? 'task-due-overdue' : ''} ${due.today ? 'task-due-today' : ''}">📅 ${escapeHtml(due.label)}${due.overdue ? ' · überfällig' : ''}</span>` : ''}
-          ${assigneeName ? `<span class="task-assignee">👤 ${escapeHtml(assigneeName)}</span>` : ''}
-          ${subTotal > 0 ? `<span class="task-subs">☑ ${subTotal - subOpen}/${subTotal}</span>` : ''}
+          ${due ? `<span class="task-due ${due.overdue ? 'task-due-overdue' : ''} ${due.today ? 'task-due-today' : ''}">${icon('calendar')} ${escapeHtml(due.label)}${due.overdue ? ' · überfällig' : ''}</span>` : ''}
+          ${assigneeName ? `<span class="task-assignee">${icon('user')} ${escapeHtml(assigneeName)}</span>` : ''}
+          ${subTotal > 0 ? `<span class="task-subs">${icon('subtasks')} ${subTotal - subOpen}/${subTotal}</span>` : ''}
           ${(() => {
             if (!t.linkedListId) return '';
             const ll = lists.find(l => l.id === t.linkedListId);
             if (!ll) return `<span class="task-linked-list" title="Verknüpfte Liste">🛒 (Liste)</span>`;
             const openN = ll.openCount || 0;
-            const state = openN === 0 ? '✅ fertig' : `${openN} offen`;
+            const state = openN === 0 ? 'fertig' : `${openN} offen`;
             return `<span class="task-linked-list" title="Verknüpfte Liste">${escapeHtml(ll.icon || '🛒')} ${escapeHtml(ll.name)} · ${state}</span>`;
           })()}
-          ${t.recurrence && t.recurrence !== 'none' ? `<span class="task-rec">🔁</span>` : ''}
-          ${t.linkedEventId ? `<span class="task-linked" title="Mit Termin verknüpft">🔗</span>` : ''}
+          ${t.recurrence && t.recurrence !== 'none' ? `<span class="task-rec" title="Wiederholt sich">${icon('repeat')}</span>` : ''}
+          ${t.linkedEventId ? `<span class="task-linked" title="Mit Termin verknüpft">${icon('link')}</span>` : ''}
         </div>
         ${(t.tags || []).length ? `
           <div class="task-card-tags">
@@ -1561,7 +1828,7 @@ function openTaskModal(existing, hh) {
 
   overlay.innerHTML = `
     <div class="modal modal-wide">
-      <h2>${isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten'}${hh ? ' <span class="cal-hh-badge">🏠 ' + escapeHtml(hh.name) + '</span>' : ''}</h2>
+      <h2>${isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten'}${hh ? ' <span class="cal-hh-badge">' + escapeHtml(hh.name) + '</span>' : ''}</h2>
 
       <div class="field">
         <label>Titel</label>
@@ -1833,7 +2100,7 @@ function renderSubtaskRow(s) {
     <div class="task-sub-edit-row" data-sub-id="${escapeHtml(s.id)}" ${s.doneAt ? `data-done-at="${s.doneAt}"` : ''}>
       <input type="checkbox" ${s.done ? 'checked' : ''} />
       <input type="text" value="${escapeHtml(s.text || '')}" maxlength="200" />
-      <button type="button" class="task-sub-del" title="Entfernen">✕</button>
+      <button type="button" class="task-sub-del" title="Entfernen" aria-label="Unteraufgabe entfernen">${icon('x', 'ic-sm')}</button>
     </div>
   `;
 }
@@ -1882,8 +2149,8 @@ function renderCalendarsTab(content) {
   const personalCals = calendars.filter(c => !c.householdId);
   content.innerHTML = `
     <div class="section-title">
-      <span>Persönliche Kalender</span>
-      <button class="btn btn-small" id="new-cal-btn">+ Neuer Kalender</button>
+      <span>Kalender</span>
+      <button class="btn btn-small" id="new-cal-btn">${icon('plus')} Neuer Kalender</button>
     </div>
     <div id="personal-cals"></div>
   `;
@@ -1895,8 +2162,8 @@ function renderListsTab(content) {
   const personalLists = lists.filter(l => !l.householdId);
   content.innerHTML = `
     <div class="section-title">
-      <span>Persönliche Listen</span>
-      <button class="btn btn-small" id="new-list-btn">+ Neue Liste</button>
+      <span>Listen</span>
+      <button class="btn btn-small" id="new-list-btn">${icon('plus')} Neue Liste</button>
     </div>
     <div id="personal-lists"></div>
   `;
@@ -1916,10 +2183,19 @@ function updateDashboardClock() {
     return;
   }
   const now = new Date();
+  const gEl = document.getElementById('dash-greeting');
+  if (gEl) gEl.textContent = greetingText();
   el.textContent = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   dateEl.textContent = now.toLocaleDateString('de-DE', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
   });
+}
+
+function greetingText() {
+  const h = new Date().getHours();
+  const part = h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 17 ? 'Hallo' : h < 22 ? 'Guten Abend' : 'Gute Nacht';
+  const first = (myProfile?.name || '').trim().split(/\s+/)[0];
+  return first ? `${part}, ${first}` : part;
 }
 
 async function renderDashboard(content, scope = null) {
@@ -1941,42 +2217,45 @@ async function renderDashboard(content, scope = null) {
   const alreadyBuilt = content.querySelector('.dash-clock') !== null;
   if (!alreadyBuilt) {
     const emptyHint = !scope
-      ? `<div id="dash-empty-hint" class="empty" style="display:none;padding:1.5rem;text-align:center;"><p style="margin-bottom:0.5rem;">Du hast noch keine <b>persönlichen</b> Kalender, Listen oder Notizen.</p><p style="color:var(--muted);font-size:0.85rem;">Alle Inhalte deiner Haushalte findest du oben unter „Haushalte".</p></div>`
+      ? `<div id="dash-empty-hint" class="empty" style="display:none;"><p>Du hast noch keine <b>persönlichen</b> Kalender, Listen oder Notizen.</p><p>Alle Inhalte deiner Haushalte findest du unter „Haushalte“.</p></div>`
       : '';
     content.innerHTML = `
       <div class="dash-top">
         <div class="dash-clock">
-          <div class="dash-clock-time" id="dash-clock-time">--:--</div>
-          <div class="dash-clock-date" id="dash-clock-date">…</div>
+          <div class="dash-greeting" id="dash-greeting">${escapeHtml(greetingText())}</div>
+          <div>
+            <div class="dash-clock-time" id="dash-clock-time">--:--</div>
+            <div class="dash-clock-date" id="dash-clock-date">…</div>
+          </div>
         </div>
         <div id="dash-weather" class="dash-weather-slot"></div>
       </div>
 
       ${emptyHint}
 
-      <div id="dash-expiring-section" style="display:none;margin-top:1.5rem;">
-        <div class="section-title"><span>⚠️ Ablaufwarnungen</span></div>
+      <div id="dash-expiring-section" style="display:none;">
+        <div class="section-title"><span>${icon('alert', 'ic-sm')} Läuft bald ab</span></div>
         <div id="dash-expiring"></div>
       </div>
 
-      <div id="dash-fav-notes-section" style="display:none;margin-top:1.5rem;">
-        <div class="section-title"><span>⭐ Favoriten</span></div>
+      <div id="dash-fav-notes-section" style="display:none;">
+        <div class="section-title"><span>${icon('star', 'ic-sm')} Favoriten</span></div>
         <div id="dash-fav-notes"></div>
       </div>
 
       <div class="dash-grid">
         <section class="dash-col dash-col-events">
-          <div class="section-title"><span>Kommende Termine (7 Tage)</span></div>
-          <div id="dash-events"></div>
+          <div class="section-title"><span>${icon('calendar', 'ic-sm')} Nächste 7 Tage</span></div>
+          <div id="dash-events"><div class="loading-block"><div class="spinner"></div></div></div>
         </section>
         <section class="dash-col dash-col-lists">
-          <div class="section-title"><span>Offene Listen</span></div>
+          <div class="section-title"><span>${icon('list', 'ic-sm')} Offene Listen</span></div>
           <div id="dash-lists"></div>
         </section>
       </div>
 
-      <div id="dash-tasks-section" style="display:none;margin-top:1.5rem;">
-        <div class="section-title"><span>✅ Fällige Aufgaben (nächste 7 Tage)</span></div>
+      <div id="dash-tasks-section" style="display:none;">
+        <div class="section-title"><span>${icon('tasks', 'ic-sm')} Fällige Aufgaben</span></div>
         <div id="dash-tasks" class="dash-tasks"></div>
       </div>
     `;
@@ -2037,7 +2316,7 @@ async function renderDashboard(content, scope = null) {
       return `
         <div class="dash-task-row ${due?.overdue ? 'overdue' : ''}" data-task-id="${tt.id}">
           <div class="dash-task-main">
-            <span class="task-prio">${prio.dot}</span>
+            <span class="task-prio" title="Priorität: ${prio.label}"><span class="prio-dot prio-${escapeHtml(tt.priority || 'normal')}"></span></span>
             <span class="dash-task-title">${escapeHtml(tt.title || '(ohne Titel)')}</span>
             <span class="dash-task-due ${due?.overdue ? 'task-due-overdue' : ''} ${due?.today ? 'task-due-today' : ''}">${due ? escapeHtml(due.label) : ''}</span>
           </div>
@@ -2073,16 +2352,16 @@ async function renderDashboard(content, scope = null) {
   // Offene Listen sofort
   const lel = $('dash-lists');
   if (!openLists.length) {
-    lel.innerHTML = `<div class="empty" style="padding:1rem;"><p>Alle Listen sind abgehakt.</p></div>`;
+    lel.innerHTML = `<div class="empty"><p>${icon('check', 'ic-sm')} Alle Listen sind abgehakt.</p></div>`;
   } else {
     lel.innerHTML = `<div class="calendar-grid">${openLists.map(l => `
-      <div class="calendar-card" data-list="${l.id}">
+      <div class="calendar-card" data-list="${l.id}" role="button" tabindex="0">
         <div class="cal-name">
-          <span style="font-size:1.3em;">${escapeHtml(l.icon || '📝')}</span>
-          ${escapeHtml(l.name)}
+          <span class="card-icon">${escapeHtml(l.icon || '📝')}</span>
+          <span class="cal-name-text">${escapeHtml(l.name)}</span>
           <span class="count-badge">${l.openCount}</span>
         </div>
-        <div class="cal-role">${l.householdId ? '🏠 ' + escapeHtml(households.find(h => h.id === l.householdId)?.name || '') : 'Persönlich'}</div>
+        <div class="cal-role">${l.householdId ? escapeHtml(households.find(h => h.id === l.householdId)?.name || '') : 'Persönlich'}</div>
       </div>
     `).join('')}</div>`;
     lel.querySelectorAll('[data-list]').forEach(card => {
@@ -2129,7 +2408,7 @@ async function renderDashboard(content, scope = null) {
     return a.start - b.start;
   });
   if (!all.length) {
-    evEl.innerHTML = `<div class="empty" style="padding:1rem;"><p>Keine Termine in den nächsten 7 Tagen.</p></div>`;
+    evEl.innerHTML = `<div class="empty"><p>Keine Termine in den nächsten 7 Tagen.</p></div>`;
     return;
   }
   ensureNamesFor(all.map(e => e.assignee).filter(Boolean), () => renderDashboard(content, scope));
@@ -2139,23 +2418,23 @@ async function renderDashboard(content, scope = null) {
     <div class="event-row ${e.live ? 'is-live' : ''}" data-cal="${e.calendar.id}" data-date="${e.start.toISOString()}" data-weekday="${e.start.getDay()}">
       <div class="event-date">
         ${e.live ? '<div class="live-badge">JETZT</div>' : `
+          <div class="event-month">${e.start.toLocaleDateString('de-DE', { weekday: 'short' }).replace('.', '')}</div>
           <div class="event-day">${e.start.getDate()}</div>
-          <div class="event-month">${e.start.toLocaleDateString('de-DE', { month: 'short' })}</div>
         `}
       </div>
       <div class="event-body">
         <div class="event-title">
           <span class="color-dot" style="background:${escapeHtml(e.calendar.color)};"></span>
-          ${e.raw?.category ? categoryIcon(e.raw.category) + ' ' : ''}${escapeHtml(e.title)}
+          <span class="event-title-text">${e.raw?.category ? categoryIcon(e.raw.category) + ' ' : ''}${escapeHtml(e.title)}</span>
         </div>
         <div class="event-meta">
-          ${e.live
+          <span class="meta-item">${e.live
             ? 'Läuft bis ' + (e.end ? e.end.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr' : '')
-            : (e.allDay ? 'Ganztägig' : e.start.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr')}
-          ${!e.live && relativeTime(e.start) ? '· <b>' + relativeTime(e.start) + '</b>' : ''}
-          · ${escapeHtml(e.calendar.name)}
-          ${e.location ? ' · 📍 ' + escapeHtml(e.location) : ''}
-          ${assigneeName ? ' · 👤 ' + escapeHtml(assigneeName) : ''}
+            : (e.allDay ? 'Ganztägig' : e.start.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr')}</span>
+          ${!e.live && relativeTime(e.start) ? '<span class="meta-sep">·</span><b>' + relativeTime(e.start) + '</b>' : ''}
+          <span class="meta-sep">·</span><span class="meta-item">${escapeHtml(e.calendar.name)}</span>
+          ${e.location ? `<span class="meta-sep">·</span><span class="meta-item">${icon('pin')} ${escapeHtml(e.location)}</span>` : ''}
+          ${assigneeName ? `<span class="meta-sep">·</span><span class="meta-item">${icon('user')} ${escapeHtml(assigneeName)}</span>` : ''}
         </div>
       </div>
     </div>
@@ -2175,9 +2454,10 @@ async function renderDashboard(content, scope = null) {
 function renderHouseholdCards() {
   const el = $('households');
   if (!el) return;
+  $('home-households')?.classList.toggle('always', !households.length);
   if (!households.length) {
     el.innerHTML = `
-      <div class="empty" style="padding:1.5rem;">
+      <div class="empty">
         <p>Noch kein Haushalt. Leg einen an und lade andere ein — dann seht ihr alle Kalender und Listen im Haushalt automatisch gemeinsam.</p>
       </div>
     `;
@@ -2188,12 +2468,16 @@ function renderHouseholdCards() {
     const calCount = calendars.filter(c => c.householdId === h.id).length;
     const listCount = lists.filter(l => l.householdId === h.id).length;
     return `
-      <div class="calendar-card" data-hh="${h.id}">
+      <div class="calendar-card hh-card" data-hh="${h.id}" role="button" tabindex="0">
         <div class="cal-name">
-          <span style="font-size:1.3em;">🏠</span>
-          ${escapeHtml(h.name)}
+          <span class="card-icon tinted" style="background:${escapeHtml(defaultAvatarColor(h.id))};">${escapeHtml(initials(h.name))}</span>
+          <span class="cal-name-text">${escapeHtml(h.name)}</span>
         </div>
-        <div class="cal-role">${memberCount} Mitglied${memberCount === 1 ? '' : 'er'} · ${calCount} Kalender · ${listCount} Liste${listCount === 1 ? '' : 'n'}</div>
+        <div class="cal-role hh-stats">
+          <span class="hh-stat">${icon('users')} ${memberCount}</span>
+          <span class="hh-stat">${icon('calendar')} ${calCount}</span>
+          <span class="hh-stat">${icon('list')} ${listCount}</span>
+        </div>
       </div>
     `;
   }).join('')}</div>`;
@@ -2224,14 +2508,13 @@ function renderListCards(el, ls, emptyText) {
   el.innerHTML = `<div class="calendar-grid sortable-list-grid">${sorted.map(l => {
     const open = l.openCount || 0;
     return `
-    <div class="calendar-card" data-list="${l.id}">
-      <span class="card-drag-handle" title="Ziehen zum Sortieren">⋮⋮</span>
+    <div class="calendar-card" data-list="${l.id}" role="button" tabindex="0">
+      <span class="card-drag-handle" title="Ziehen zum Sortieren">${icon('grip', 'ic-sm')}</span>
       <div class="cal-name">
-        <span style="font-size:1.3em;">${escapeHtml(l.icon || '📝')}</span>
-        ${escapeHtml(l.name)}
-        ${open > 0 ? `<span class="count-badge">${open}</span>` : ''}
+        <span class="card-icon">${escapeHtml(l.icon || '📝')}</span>
+        <span class="cal-name-text">${escapeHtml(l.name)}</span>
       </div>
-      <div class="cal-role">${open > 0 ? `${open} offen` : 'Liste'}</div>
+      <div class="cal-role">${open > 0 ? `<span class="count-badge" style="margin-left:0;">${open}</span> offen` : `${icon('check', 'ic-xs')} Alles erledigt`}</div>
     </div>
     `;
   }).join('')}</div>`;
@@ -2283,13 +2566,13 @@ function renderPersonalCals(cals) {
     return (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0);
   });
   el.innerHTML = `<div class="calendar-grid sortable-cal-grid">${sorted.map(c => `
-    <div class="calendar-card" data-cal="${c.id}">
-      <span class="card-drag-handle" title="Ziehen zum Sortieren">⋮⋮</span>
+    <div class="calendar-card" data-cal="${c.id}" role="button" tabindex="0">
+      <span class="card-drag-handle" title="Ziehen zum Sortieren">${icon('grip', 'ic-sm')}</span>
       <div class="cal-name">
-        <span class="color-dot" style="background:${escapeHtml(c.color || '#14b8a6')};"></span>
-        ${escapeHtml(c.name)}
+        <span class="card-icon tinted" style="background:${escapeHtml(c.color || '#14b8a6')};">${icon('calendar')}</span>
+        <span class="cal-name-text">${escapeHtml(c.name)}</span>
       </div>
-      <div class="cal-role">${c.members?.[currentUser.uid] || '—'}</div>
+      <div class="cal-role">${escapeHtml(roleLabel(c.members?.[currentUser.uid]))}</div>
     </div>
   `).join('')}</div>`;
   el.querySelectorAll('[data-cal]').forEach(card => {
@@ -2316,21 +2599,17 @@ function renderHousehold() {
 
   appEl.innerHTML = `
     ${topbarHtml(`
-      <button class="logout-btn" id="back-btn">← Zurück</button>
-      <span class="topbar-cal"><span style="font-size:1.2em;">🏠</span> ${escapeHtml(hh.name)}</span>
+      ${backBtnHtml('Übersicht')}
+      <span class="topbar-cal">${householdTileHtml(hh)} <span class="topbar-cal-name">${escapeHtml(hh.name)}</span></span>
     `)}
-    <main class="content">
-      <div class="home-tabs">
-        <button data-hhtab="dashboard" class="${householdTab === 'dashboard' ? 'active' : ''}">📊 Dashboard</button>
-        <button data-hhtab="calendars" class="${householdTab === 'calendars' ? 'active' : ''}">📅 Kalender</button>
-        <button data-hhtab="lists" class="${householdTab === 'lists' ? 'active' : ''}">📝 Listen</button>
-        <button data-hhtab="tasks" class="${householdTab === 'tasks' ? 'active' : ''}">✅ Aufgaben</button>
-        <button data-hhtab="notes" class="${householdTab === 'notes' ? 'active' : ''}">📌 Notizen</button>
-        <button data-hhtab="meal" class="${householdTab === 'meal' ? 'active' : ''}">🍽️ Essen</button>
-        <button data-hhtab="records" class="${householdTab === 'records' ? 'active' : ''}">📁 Akte</button>
-        <button data-hhtab="members" class="${householdTab === 'members' ? 'active' : ''}">👥 Mitglieder</button>
-      </div>
-      <div id="hh-tab-content"></div>
+    <main class="content" data-hh-tab="${householdTab}">
+      <nav class="home-tabs" aria-label="Ansichten im Haushalt">
+        ${NAV_HOUSEHOLD.map(n => `
+          <button data-hhtab="${n.tab}" class="${householdTab === n.tab ? 'active' : ''}" ${householdTab === n.tab ? 'aria-current="page"' : ''}>${icon(n.icon)}<span>${n.label}</span></button>
+        `).join('')}
+      </nav>
+      <div class="hh-head page-eyebrow">${householdTileHtml(hh)} ${escapeHtml(hh.name)}</div>
+      <div id="hh-tab-content" class="tab-content"></div>
     </main>
   `;
   wireLogout();
@@ -2352,8 +2631,8 @@ function renderHouseholdTab(hh, isOwner) {
   } else if (householdTab === 'calendars') {
     content.innerHTML = `
       <div class="section-title">
-        <span>Kalender in diesem Haushalt</span>
-        <button class="btn btn-small" id="new-hh-cal-btn">+ Neuer Kalender</button>
+        <span>Kalender</span>
+        <button class="btn btn-small" id="new-hh-cal-btn">${icon('plus')} Neuer Kalender</button>
       </div>
       <div id="hh-cals"></div>
     `;
@@ -2362,8 +2641,8 @@ function renderHouseholdTab(hh, isOwner) {
   } else if (householdTab === 'lists') {
     content.innerHTML = `
       <div class="section-title">
-        <span>Listen in diesem Haushalt</span>
-        <button class="btn btn-small" id="new-hh-list-btn">+ Neue Liste</button>
+        <span>Listen</span>
+        <button class="btn btn-small" id="new-hh-list-btn">${icon('plus')} Neue Liste</button>
       </div>
       <div id="hh-lists"></div>
     `;
@@ -2378,8 +2657,8 @@ function renderHouseholdTab(hh, isOwner) {
   } else if (householdTab === 'notes') {
     content.innerHTML = `
       <div class="section-title">
-        <span>Notizen im Haushalt</span>
-        <button class="btn btn-small" id="new-hh-note-btn">+ Neue Notiz</button>
+        <span>Notizen</span>
+        <button class="btn btn-small" id="new-hh-note-btn">${icon('plus')} Neue Notiz</button>
       </div>
       <div id="hh-notes"></div>
     `;
@@ -2389,29 +2668,29 @@ function renderHouseholdTab(hh, isOwner) {
     content.innerHTML = `
       <div class="section-title">
         <span>Mitglieder</span>
-        ${isOwner ? '<button class="btn btn-small" id="invite-btn">🔗 Einladungscodes</button>' : ''}
+        ${isOwner ? `<button class="btn btn-small" id="invite-btn">${icon('link')} Einladungscodes</button>` : ''}
       </div>
       <div id="members"></div>
 
-      <div class="section-title" style="margin-top:2rem;">
-        <span>📊 Statistiken</span>
+      <div class="section-title sub-section">
+        <span>${icon('chart')} Statistiken</span>
       </div>
-      <div id="stats-panel"><div class="empty" style="padding:1rem;"><p style="color:var(--muted);">Lade …</p></div></div>
+      <div id="stats-panel"><div class="loading-block"><div class="spinner"></div></div></div>
 
-      <div class="section-title" style="margin-top:2rem;">
-        <span>Letzte Aktivitäten</span>
+      <div class="section-title sub-section">
+        <span>${icon('activity')} Letzte Aktivitäten</span>
       </div>
-      <div id="activity-log"><div class="empty" style="padding:1rem;"><p style="color:var(--muted);">Lade …</p></div></div>
+      <div id="activity-log"><div class="loading-block"><div class="spinner"></div></div></div>
 
-      ${isOwner ? `
-        <div style="margin-top:3rem;text-align:right;">
-          <button class="btn btn-danger btn-small" id="delete-hh-btn">Haushalt löschen</button>
-        </div>
-      ` : `
-        <div style="margin-top:3rem;text-align:right;">
-          <button class="btn btn-secondary btn-small" id="leave-hh-btn">Haushalt verlassen</button>
-        </div>
-      `}
+      <div class="danger-zone">
+        ${isOwner ? `
+          <div class="danger-zone-text"><b>Haushalt löschen</b>Entfernt den Haushalt für alle Mitglieder.</div>
+          <button class="btn btn-danger btn-small" id="delete-hh-btn">${icon('trash')} Haushalt löschen</button>
+        ` : `
+          <div class="danger-zone-text"><b>Haushalt verlassen</b>Du verlierst den Zugriff auf die gemeinsamen Inhalte.</div>
+          <button class="btn btn-secondary btn-small" id="leave-hh-btn">${icon('door')} Haushalt verlassen</button>
+        `}
+      </div>
     `;
     if (isOwner) {
       $('invite-btn').addEventListener('click', () => openInviteModal(hh));
@@ -2437,7 +2716,7 @@ function renderMembers(hh, canEdit) {
             ${avatarHtml(uid, 'md')}
             <div>
               <div class="member-name">${escapeHtml(nameFor(uid))}</div>
-              <div class="member-role">${role === 'owner' ? 'Owner' : 'Mitglied'}</div>
+              <div class="member-role">${role === 'owner' ? 'Eigentümer' : 'Mitglied'}${uid === currentUser.uid ? ' · Du' : ''}</div>
             </div>
           </div>
           ${canEdit && uid !== currentUser.uid && role !== 'owner' ? `
@@ -2447,12 +2726,12 @@ function renderMembers(hh, canEdit) {
       `).join('')}
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;margin:1.5rem 0 0.5rem;">
-      <div style="font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;">Weitere Personen im Haushalt</div>
-      <button class="btn btn-secondary btn-small" id="new-person-btn">+ Person hinzufügen</button>
+    <div class="section-title sub-section">
+      <span>Weitere Personen</span>
+      <button class="btn btn-secondary btn-small" id="new-person-btn">${icon('plus')} Person hinzufügen</button>
     </div>
-    <div class="field-hint" style="margin-bottom:8px;">
-      Kinder, Oma & Co. — ohne eigenen Login. Können in Terminen und Akte-Einträgen zugewiesen werden.
+    <div class="field-hint" style="margin:-8px 0 12px;">
+      Kinder, Oma &amp; Co. — ohne eigenen Login. Können in Terminen und Akte-Einträgen zugewiesen werden.
     </div>
     <div class="member-list">
       ${hhPersons.length ? hhPersons.map(p => {
@@ -2665,13 +2944,13 @@ function renderHhCals(cals) {
     return (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0);
   });
   el.innerHTML = `<div class="calendar-grid sortable-cal-grid">${sorted.map(c => `
-    <div class="calendar-card" data-cal="${c.id}">
-      <span class="card-drag-handle" title="Ziehen zum Sortieren">⋮⋮</span>
+    <div class="calendar-card" data-cal="${c.id}" role="button" tabindex="0">
+      <span class="card-drag-handle" title="Ziehen zum Sortieren">${icon('grip', 'ic-sm')}</span>
       <div class="cal-name">
-        <span class="color-dot" style="background:${escapeHtml(c.color || '#14b8a6')};"></span>
-        ${escapeHtml(c.name)}
+        <span class="card-icon tinted" style="background:${escapeHtml(c.color || '#14b8a6')};">${icon('calendar')}</span>
+        <span class="cal-name-text">${escapeHtml(c.name)}</span>
       </div>
-      <div class="cal-role">Im Haushalt</div>
+      <div class="cal-role">${icon('users', 'ic-xs')} Für alle im Haushalt</div>
     </div>
   `).join('')}</div>`;
   el.querySelectorAll('[data-cal]').forEach(card => {
@@ -2768,13 +3047,13 @@ async function openInviteModal(hh) {
       <h2>Einladungscodes für „${escapeHtml(hh.name)}"</h2>
       <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">
         Erstelle einen Code und schick ihn per Nachricht an die Person.
-        Sie wählt in ihrer App „🔗 Beitreten" und gibt den Code ein.
+        Sie wählt in ihrer App „Beitreten“ und gibt den Code ein.
       </p>
       <div id="modal-msg"></div>
       <div id="codes-list"><div class="empty" style="padding:1rem;"><p>Lade Codes …</p></div></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="cancel-btn">Schließen</button>
-        <button class="btn" id="new-code-btn">+ Neuen Code erstellen</button>
+        <button class="btn" id="new-code-btn">${icon('plus')} Neuen Code erstellen</button>
       </div>
     </div>
   `;
@@ -2916,7 +3195,7 @@ function openNewCalendarModal(preselectedHousehold) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const hhOptions = households.map(h =>
-    `<option value="${h.id}" ${preselectedHousehold?.id === h.id ? 'selected' : ''}>🏠 ${escapeHtml(h.name)}</option>`
+    `<option value="${h.id}" ${preselectedHousehold?.id === h.id ? 'selected' : ''}>${escapeHtml(h.name)}</option>`
   ).join('');
   overlay.innerHTML = `
     <div class="modal">
@@ -2994,17 +3273,17 @@ function openCalendar(cal) {
 
   appEl.innerHTML = `
     ${topbarHtml(`
-      <button class="logout-btn" id="back-btn">← Zurück</button>
+      ${backBtnHtml(hh ? hh.name : 'Übersicht')}
       <span class="topbar-cal" id="cal-header">
         <span class="color-dot" style="background:${escapeHtml(cal.color)};"></span>
-        ${escapeHtml(cal.name)}
-        ${hh ? `<span class="cal-hh-badge">🏠 ${escapeHtml(hh.name)}</span>` : ''}
+        <span class="topbar-cal-name">${escapeHtml(cal.name)}</span>
+        ${hh ? `<span class="cal-hh-badge">${escapeHtml(hh.name)}</span>` : ''}
       </span>
     `)}
     <main class="content content-wide">
       ${otherCals.length ? `
         <div class="cal-filter-bar">
-          <span class="cal-filter-label">Zusätzlich anzeigen:</span>
+          <span class="cal-filter-label">Einblenden:</span>
           ${otherCals.map(c => `
             <label class="cal-filter-chip">
               <input type="checkbox" data-overlay-cal="${c.id}" />
@@ -3016,8 +3295,8 @@ function openCalendar(cal) {
       ` : ''}
       <div id="fc-container"></div>
       ${cal.owner === currentUser.uid ? `
-        <div style="margin-top:1rem;text-align:right;">
-          <button class="btn btn-secondary btn-small" id="cal-settings-btn">Einstellungen</button>
+        <div class="detail-actions end">
+          <button class="btn btn-secondary btn-small" id="cal-settings-btn">${icon('settings')} Kalender-Einstellungen</button>
         </div>
       ` : ''}
     </main>
@@ -3034,7 +3313,7 @@ function openCalendar(cal) {
   });
 
   const container = $('fc-container');
-  container.innerHTML = '<div class="empty" style="padding:2rem;text-align:center;"><div class="spinner"></div></div>';
+  container.innerHTML = '<div class="loading-block"><div class="spinner"></div></div>';
   // FullCalendar-Init auf nächsten Tick verschieben — Rest der Seite wird
   // sofort sichtbar, dann rendert FC im Hintergrund
   requestAnimationFrame(() => setupFullCalendar(container, cal, canEdit));
@@ -3056,7 +3335,7 @@ function setupFullCalendar(container, cal, canEdit) {
     buttonText: { today: 'Heute', month: 'Monat', week: 'Woche', list: 'Liste' },
     customButtons: {
       jumpTo: {
-        text: '📅→',
+        text: 'Datum …',
         hint: 'Zu Datum springen',
         click: () => openJumpToModal(cal)
       }
@@ -3206,8 +3485,8 @@ function updateCalendarHeader(cal) {
   const hh = cal.householdId ? households.find(h => h.id === cal.householdId) : null;
   el.innerHTML = `
     <span class="color-dot" style="background:${escapeHtml(cal.color)};"></span>
-    ${escapeHtml(cal.name)}
-    ${hh ? `<span class="cal-hh-badge">🏠 ${escapeHtml(hh.name)}</span>` : ''}
+    <span class="topbar-cal-name">${escapeHtml(cal.name)}</span>
+    ${hh ? `<span class="cal-hh-badge">${escapeHtml(hh.name)}</span>` : ''}
   `;
 }
 
@@ -3222,7 +3501,7 @@ function openCalendarSettingsModal(cal) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const hhOptions = households.map(h =>
-    `<option value="${h.id}" ${cal.householdId === h.id ? 'selected' : ''}>🏠 ${escapeHtml(h.name)}</option>`
+    `<option value="${h.id}" ${cal.householdId === h.id ? 'selected' : ''}>${escapeHtml(h.name)}</option>`
   ).join('');
   overlay.innerHTML = `
     <div class="modal">
@@ -3248,7 +3527,7 @@ function openCalendarSettingsModal(cal) {
         </div>
       </div>
       <div class="field field-inline">
-        <label><input type="checkbox" id="cs-holidays" ${cal.showHolidays ? 'checked' : ''} /> 🎉 Deutsche Feiertage (bundesweit)</label>
+        <label><input type="checkbox" id="cs-holidays" ${cal.showHolidays ? 'checked' : ''} /> Deutsche Feiertage (bundesweit)</label>
       </div>
       <div class="field">
         <label>Bundesland (zusätzliche Feiertage + Ferien)</label>
@@ -3258,10 +3537,10 @@ function openCalendarSettingsModal(cal) {
         </select>
       </div>
       <div class="field field-inline" id="cs-school-wrap" style="${cal.holidayState && cal.holidayState !== 'none' ? '' : 'display:none;'}">
-        <label><input type="checkbox" id="cs-school" ${cal.showSchoolHolidays !== false ? 'checked' : ''} /> 🏫 Schulferien mit anzeigen</label>
+        <label><input type="checkbox" id="cs-school" ${cal.showSchoolHolidays !== false ? 'checked' : ''} /> Schulferien mit anzeigen</label>
       </div>
-      <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
-        <button class="btn btn-secondary btn-small" id="export-ics-btn" style="width:100%;">📥 Als .ics exportieren</button>
+      <div style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--hairline);">
+        <button class="btn btn-secondary btn-small" id="export-ics-btn" style="width:100%;">${icon('download')} Als .ics exportieren</button>
         <div class="field-hint" style="text-align:center;margin-top:6px;">Datei in Google/Apple Calendar importieren</div>
       </div>
       <div class="modal-actions">
@@ -3334,7 +3613,7 @@ function openNewListModal(preselectedHousehold) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const hhOptions = households.map(h =>
-    `<option value="${h.id}" ${preselectedHousehold?.id === h.id ? 'selected' : ''}>🏠 ${escapeHtml(h.name)}</option>`
+    `<option value="${h.id}" ${preselectedHousehold?.id === h.id ? 'selected' : ''}>${escapeHtml(h.name)}</option>`
   ).join('');
   overlay.innerHTML = `
     <div class="modal">
@@ -3413,27 +3692,27 @@ function openList(list) {
 
   appEl.innerHTML = `
     ${topbarHtml(`
-      <button class="logout-btn" id="back-btn">← Zurück</button>
+      ${backBtnHtml(hh ? hh.name : 'Übersicht')}
       <span class="topbar-cal" id="list-header">
-        <span style="font-size:1.2em;">${escapeHtml(list.icon || '📝')}</span>
-        ${escapeHtml(list.name)}
-        ${hh ? `<span class="cal-hh-badge">🏠 ${escapeHtml(hh.name)}</span>` : ''}
+        <span class="topbar-emoji">${escapeHtml(list.icon || '📝')}</span>
+        <span class="topbar-cal-name">${escapeHtml(list.name)}</span>
+        ${hh ? `<span class="cal-hh-badge">${escapeHtml(hh.name)}</span>` : ''}
       </span>
     `)}
-    <main class="content">
+    <main class="content content-narrow">
       <form id="add-item-form" class="add-item-row">
-        <input type="number" id="item-qty" min="1" max="99" value="1" title="Menge" />
-        <input type="text" id="item-input" placeholder="Neuen Eintrag hinzufügen …" autocomplete="off" />
-        <button type="submit" class="btn btn-small">+ Hinzufügen</button>
+        <input type="number" id="item-qty" min="1" max="99" value="1" title="Menge" aria-label="Menge" />
+        <input type="text" id="item-input" placeholder="Neuen Eintrag hinzufügen …" autocomplete="off" aria-label="Neuer Eintrag" />
+        <button type="submit" class="btn btn-small">${icon('plus')} Hinzufügen</button>
       </form>
       <div id="item-list"></div>
-      <div style="margin-top:1.5rem;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-secondary btn-small" id="clear-done-btn">Erledigte entfernen</button>
-          <button class="btn btn-secondary btn-small" id="reopen-all-btn">Alle wieder öffnen</button>
-          <button class="btn btn-secondary btn-small" id="duplicate-btn">Als Vorlage duplizieren</button>
+      <div class="detail-actions">
+        <div>
+          <button class="btn btn-ghost btn-small" id="clear-done-btn">${icon('trash')} Erledigte entfernen</button>
+          <button class="btn btn-ghost btn-small" id="reopen-all-btn">${icon('undo')} Alle wieder öffnen</button>
+          <button class="btn btn-ghost btn-small" id="duplicate-btn">${icon('copy')} Als Vorlage duplizieren</button>
         </div>
-        ${list.owner === currentUser.uid ? '<button class="btn btn-secondary btn-small" id="list-settings-btn">Einstellungen</button>' : ''}
+        ${list.owner === currentUser.uid ? `<button class="btn btn-secondary btn-small" id="list-settings-btn">${icon('settings')} Einstellungen</button>` : ''}
       </div>
     </main>
   `;
@@ -3471,9 +3750,9 @@ function updateListHeader(list) {
   if (!el) return;
   const hh = list.householdId ? households.find(h => h.id === list.householdId) : null;
   el.innerHTML = `
-    <span style="font-size:1.2em;">${escapeHtml(list.icon || '📝')}</span>
-    ${escapeHtml(list.name)}
-    ${hh ? `<span class="cal-hh-badge">🏠 ${escapeHtml(hh.name)}</span>` : ''}
+    <span class="topbar-emoji">${escapeHtml(list.icon || '📝')}</span>
+    <span class="topbar-cal-name">${escapeHtml(list.name)}</span>
+    ${hh ? `<span class="cal-hh-badge">${escapeHtml(hh.name)}</span>` : ''}
   `;
 }
 
@@ -3489,19 +3768,19 @@ function renderItems(list) {
     : {};
 
   if (!open.length && !done.length) {
-    el.innerHTML = `<div class="empty" style="padding:1.5rem;"><p>Noch keine Einträge.</p></div>`;
+    el.innerHTML = `<div class="empty"><p>Noch keine Einträge. Schreib oben den ersten hinein.</p></div>`;
     return;
   }
 
   const itemHtml = (i, draggable) => `
     <div class="list-item ${i.done ? 'done' : ''}" data-id="${i.id}">
-      ${draggable ? '<span class="drag-handle" title="Ziehen zum Sortieren">⋮⋮</span>' : ''}
+      ${draggable ? `<span class="drag-handle" title="Ziehen zum Sortieren">${icon('grip', 'ic-sm')}</span>` : ''}
       <label class="item-check">
         <input type="checkbox" ${i.done ? 'checked' : ''} data-toggle="${i.id}" />
         <span class="item-text">${i.qty && i.qty > 1 ? `<b>${i.qty}×</b> ` : ''}${escapeHtml(i.text)}</span>
       </label>
       ${i.done && i.doneBy ? `<span class="item-meta">${escapeHtml(nameFor(i.doneBy))}</span>` : ''}
-      <button class="item-del" data-del="${i.id}" title="Löschen">✕</button>
+      <button class="item-del" data-del="${i.id}" title="Löschen" aria-label="Eintrag löschen">${icon('x', 'ic-sm')}</button>
     </div>
   `;
 
@@ -3748,7 +4027,7 @@ function openListSettingsModal(list) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const hhOptions = households.map(h =>
-    `<option value="${h.id}" ${list.householdId === h.id ? 'selected' : ''}>🏠 ${escapeHtml(h.name)}</option>`
+    `<option value="${h.id}" ${list.householdId === h.id ? 'selected' : ''}>${escapeHtml(h.name)}</option>`
   ).join('');
   overlay.innerHTML = `
     <div class="modal">
@@ -3982,12 +4261,12 @@ function renderMealTab(content, hh) {
 
   content.innerHTML = `
     <div class="section-title">
-      <span>🍽️ Wochenend-Menü</span>
+      <span>Wochenend-Menü</span>
     </div>
     <div class="meal-nav">
-      <button class="btn btn-secondary btn-small" id="meal-prev">← Vorheriges</button>
+      <button class="btn btn-secondary btn-small" id="meal-prev" aria-label="Vorheriges Wochenende">${icon('back')} Vorheriges</button>
       <div class="meal-range">${escapeHtml(rangeLabel)}${mealWeekOffset === 0 ? ' <span style="color:var(--muted);font-size:0.78rem;">(dieses WE)</span>' : ''}</div>
-      <button class="btn btn-secondary btn-small" id="meal-next">Nächstes →</button>
+      <button class="btn btn-secondary btn-small" id="meal-next" aria-label="Nächstes Wochenende">Nächstes ${icon('chevronRight')}</button>
     </div>
     <div class="meal-days">
       ${MEAL_DAYS.map((d, i) => renderMealDay(plan, d, i, friday, hh)).join('')}
@@ -4017,7 +4296,7 @@ function renderMealDay(plan, day, dayIdx, friday, hh) {
             <div class="meal-p-head">
               ${avatarHtml(p.by, 'sm')}
               <div class="meal-p-dish">${escapeHtml(p.dish)}</div>
-              ${chosen === i ? '<span class="meal-chosen-badge">✓ gewählt</span>' : `<button class="btn btn-secondary btn-small" data-choose="${day.key}:${i}">Wählen</button>`}
+              ${chosen === i ? `<span class="meal-chosen-badge">${icon('check', 'ic-xs')} gewählt</span>` : `<button class="btn btn-secondary btn-small" data-choose="${day.key}:${i}">Wählen</button>`}
             </div>
             ${p.ingredients?.length ? `
               <div class="meal-ingredients">
@@ -4031,7 +4310,7 @@ function renderMealDay(plan, day, dayIdx, friday, hh) {
           </div>
         `).join('')}
       </div>
-      <button class="btn btn-secondary btn-small meal-add-btn" data-add-day="${day.key}">+ Vorschlag hinzufügen</button>
+      <button class="btn btn-secondary btn-small meal-add-btn" data-add-day="${day.key}">${icon('plus')} Vorschlag hinzufügen</button>
     </div>
   `;
 }
@@ -4411,14 +4690,14 @@ function renderRecordsTab(content, hh) {
 
   const activeChip = cat =>
     `<button class="cal-filter-chip ${recordsFilter === cat ? 'chip-active' : ''}" data-rec-cat="${cat}">
-      ${cat === 'all' ? '📁 Alle' : recordCategoryInfo(cat).icon + ' ' + escapeHtml(recordCategoryInfo(cat).label)}
+      ${cat === 'all' ? 'Alle' : recordCategoryInfo(cat).icon + ' ' + escapeHtml(recordCategoryInfo(cat).label)}
       <span class="chip-count">${cat === 'all' ? hhRecords.length : (catCounts[cat] || 0)}</span>
     </button>`;
 
   content.innerHTML = `
     <div class="section-title">
-      <span>📁 Familien-Akte</span>
-      <button class="btn btn-small" id="new-record-btn">+ Neuer Eintrag</button>
+      <span>Familien-Akte</span>
+      <button class="btn btn-small" id="new-record-btn">${icon('plus')} Neuer Eintrag</button>
     </div>
     <div class="cal-filter-bar" style="margin-bottom:1rem;">
       ${['all', ...RECORD_CATEGORIES.map(c => c.id)].map(activeChip).join('')}
@@ -4473,7 +4752,7 @@ function renderRecordCards(el, list, hh) {
         ${r.text ? `<div class="record-text">${escapeHtml(r.text.slice(0, 140))}${r.text.length > 140 ? '…' : ''}</div>` : ''}
         <div class="record-footer">
           ${r.personUid ? avatarHtml(r.personUid, 'sm') + '<span class="record-person">' + escapeHtml(nameFor(r.personUid)) + '</span>' : ''}
-          ${r.externalLink ? `<a href="${escapeHtml(r.externalLink)}" target="_blank" rel="noopener noreferrer" class="record-link" onclick="event.stopPropagation()">🔗 Link</a>` : ''}
+          ${r.externalLink ? `<a href="${escapeHtml(r.externalLink)}" target="_blank" rel="noopener noreferrer" class="record-link" onclick="event.stopPropagation()">${icon('link', 'ic-xs')} Link</a>` : ''}
         </div>
         ${expiryHtml}
       </div>
@@ -4641,7 +4920,7 @@ function renderNoteCards(el, ns, emptyText) {
       : '';
     return `
       <div class="note-card ${n.favorite ? 'favorite' : ''}" data-note="${n.id}" style="background:${escapeHtml(color)};">
-        <button class="note-fav" data-fav="${n.id}" title="${n.favorite ? 'Favorit entfernen' : 'Als Favorit markieren'}">${n.favorite ? '★' : '☆'}</button>
+        <button class="note-fav" data-fav="${n.id}" title="${n.favorite ? 'Favorit entfernen' : 'Als Favorit markieren'}">${icon('star', n.favorite ? 'ic-fill' : '')}</button>
         <div class="note-text">${escapeHtml(n.text || '').replace(/\n/g, '<br>')}</div>
         ${tagsHtml}
         ${authorName ? `<div class="note-author">— ${escapeHtml(authorName)}</div>` : ''}
@@ -4677,7 +4956,7 @@ function openNoteModal(existing, preselectedHousehold) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const hhOptions = households.map(h =>
-    `<option value="${h.id}" ${(existing?.householdId || preselectedHousehold?.id) === h.id ? 'selected' : ''}>🏠 ${escapeHtml(h.name)}</option>`
+    `<option value="${h.id}" ${(existing?.householdId || preselectedHousehold?.id) === h.id ? 'selected' : ''}>${escapeHtml(h.name)}</option>`
   ).join('');
   overlay.innerHTML = `
     <div class="modal">
@@ -4692,7 +4971,7 @@ function openNoteModal(existing, preselectedHousehold) {
         <input type="text" id="note-tags" value="${escapeHtml((existing?.tags || []).join(', '))}" placeholder="z.B. einkauf, reisen, wlan" />
       </div>
       <div class="field field-inline">
-        <label><input type="checkbox" id="note-fav-cb" ${existing?.favorite ? 'checked' : ''} /> ⭐ Als Favorit — erscheint auch im Dashboard</label>
+        <label><input type="checkbox" id="note-fav-cb" ${existing?.favorite ? 'checked' : ''} /> Als Favorit – erscheint auch in der Übersicht</label>
       </div>
       ${isNew ? `
         <div class="field">
@@ -4917,7 +5196,7 @@ function openEventModal(cal, existing, canEdit = true) {
             <input type="checkbox" data-copy-cal="${c.id}" />
             <span class="color-dot" style="background:${escapeHtml(c.color || '#14b8a6')};"></span>
             ${escapeHtml(c.name)}
-            ${hh ? `<span class="copy-cal-hh">🏠 ${escapeHtml(hh.name)}</span>` : ''}
+            ${hh ? `<span class="copy-cal-hh">${escapeHtml(hh.name)}</span>` : ''}
           </label>
         `;
       }).join('');
@@ -5271,7 +5550,7 @@ async function renderStats(hh) {
       </div>
 
       ${catTop.length ? `
-        <div class="stats-subtitle">📅 Häufigste Termin-Kategorien</div>
+        <div class="stats-subtitle">Häufigste Termin-Kategorien</div>
         <div class="stat-bars">
           ${catTop.map(([cat, n]) => `
             <div class="stat-bar-row">
@@ -5284,7 +5563,7 @@ async function renderStats(hh) {
       ` : ''}
 
       ${itemTop.length ? `
-        <div class="stats-subtitle">🛒 Häufig eingekauft / erledigt</div>
+        <div class="stats-subtitle">Häufig eingekauft / erledigt</div>
         <div class="stat-bars">
           ${itemTop.map(([name, n]) => `
             <div class="stat-bar-row">
@@ -5619,7 +5898,7 @@ function openCommandPalette() {
   overlay.id = 'cmd-palette';
   overlay.innerHTML = `
     <div class="modal" style="max-width:520px;">
-      <input type="text" id="cmd-input" placeholder="🔍 Suchen: Dashboard, Kalender, Liste …" autocomplete="off" style="width:100%;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;margin-bottom:8px;" />
+      <input type="text" id="cmd-input" placeholder="Wohin? Übersicht, Kalender, Liste …" autocomplete="off" class="input" style="margin-bottom:8px;" />
       <div id="cmd-results" class="cmd-results"></div>
       <div class="field-hint" style="text-align:center;margin-top:8px;">↑↓ zum Navigieren · Enter zum Öffnen · Esc zum Schließen</div>
     </div>
